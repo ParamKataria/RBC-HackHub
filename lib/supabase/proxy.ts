@@ -47,9 +47,13 @@ export async function updateSession(request: NextRequest) {
   const { data } = await supabase.auth.getClaims();
   const user = data?.claims;
 
+  // The catalog is a public read of Postgres records. RLS already limits it to SELECT.
+  const isPublicCatalog = request.nextUrl.pathname.startsWith("/catalog");
+
   if (
     request.nextUrl.pathname !== "/" &&
     !user &&
+    !isPublicCatalog &&
     !request.nextUrl.pathname.startsWith("/login") &&
     !request.nextUrl.pathname.startsWith("/auth")
   ) {
