@@ -23,6 +23,8 @@ Digitized rule: every row in this slice has `media_url`, so `bccns_digitized` is
 
 Community rule: this source has no community field. `records.bccns_community` stays empty. Do not infer a community from a subject or a place.
 
+Display rule: catalog titles come from `schemaFieldMap` in `src/types/schema-map.ts`. `dc_title` is shown as Title, and `dcterms_accessRights` is shown as Access rights.
+
 | Source field | Dublin Core field | Supabase column | Example value | Required or optional |
 | --- | --- | --- | --- | --- |
 | dc_publisher | Publisher | sources.name, and records.dc_publisher (text) | Nova Scotia Archives | Required |

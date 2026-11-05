@@ -20,3 +20,6 @@ export type {
   CatalogTotals,
   CatalogView,
 } from "./catalog";
+
+export { fieldLabel, schemaFieldMap } from "./schema-map";
+export type { SchemaField, SchemaFieldKey } from "./schema-map";
