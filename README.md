@@ -1,110 +1,70 @@
-<a href="https://demo-nextjs-with-supabase.vercel.app/">
-  <img alt="Next.js and Supabase Starter Kit - the fastest way to build apps with Next.js and Supabase" src="https://demo-nextjs-with-supabase.vercel.app/opengraph-image.png">
-  <h1 align="center">Next.js and Supabase Starter Kit</h1>
-</a>
+# RBC HackHub
 
-<p align="center">
- The fastest way to build apps with Next.js and Supabase
-</p>
+A discovery catalog for Black history records held by Nova Scotia Archives, Library and Archives Canada, and the Black Cultural Centre for Nova Scotia (BCCNS). Records live in Supabase Postgres. The app indexes metadata and links back to each source. It does not copy the collections.
 
-<p align="center">
-  <a href="#features"><strong>Features</strong></a> ·
-  <a href="#demo"><strong>Demo</strong></a> ·
-  <a href="#deploy-to-vercel"><strong>Deploy to Vercel</strong></a> ·
-  <a href="#clone-and-run-locally"><strong>Clone and run locally</strong></a> ·
-  <a href="#feedback-and-issues"><strong>Feedback and issues</strong></a>
-  <a href="#more-supabase-examples"><strong>More Examples</strong></a>
-</p>
-<br/>
+## Routes
 
-## Features
+| Route | What it does |
+| --- | --- |
+| [`/`](app/page.tsx) | Home. Links to the catalog. |
+| [`/catalog`](app/catalog/page.tsx) | Test page for full-text search. One search box covers every source. |
+| [`/catalog/[id]`](app/catalog/[id]/page.tsx) | One record: stored fields, linked people, places, and subjects, and the original metadata. |
+| [`/api/search`](app/api/search/route.ts) | JSON search across every source. |
 
-- Works across the entire [Next.js](https://nextjs.org) stack
-  - App Router
-  - Pages Router
-  - Proxy
-  - Client
-  - Server
-  - It just works!
-- supabase-ssr. A package to configure Supabase Auth to use cookies
-- Password-based authentication block installed via the [Supabase UI Library](https://supabase.com/ui/docs/nextjs/password-based-auth)
-- Styling with [Tailwind CSS](https://tailwindcss.com)
-- Components with [shadcn/ui](https://ui.shadcn.com/)
-- Optional deployment with [Supabase Vercel Integration and Vercel deploy](#deploy-your-own)
-  - Environment variables automatically assigned to Vercel project
+`/catalog` and `/api/search` are public reads. Row Level Security still allows only `SELECT`.
 
-## Demo
+Auth pages from the starter remain at `/auth/login`, `/auth/sign-up`, `/auth/forgot-password`, and `/auth/update-password`. `/protected` requires a signed-in session.
 
-You can view a fully working demo at [demo-nextjs-with-supabase.vercel.app](https://demo-nextjs-with-supabase.vercel.app/).
+## Search
 
-## Deploy to Vercel
+`GET /api/search` reads the Postgres `search_vector` column. An empty `q` lists every record. `institution` limits the result to one publisher.
 
-Vercel deployment will guide you through creating a Supabase account and project.
+| Query param | Matches |
+| --- | --- |
+| `q` | Full text on title, description, subject, place, and community |
+| `institution` | `dc_publisher` |
+| `type` | Controlled `dc_type` value, such as `map` or `research guide` |
+| `subject` | A value in `dc_subject` |
+| `place` | Text in `dcterms_spatial` |
+| `from` | `dc_date` on or after `YYYY-MM-DD` |
+| `to` | `dc_date` on or before `YYYY-MM-DD` |
 
-After installation of the Supabase integration, all relevant environment variables will be assigned to the project so the deployment is fully functioning.
+Examples:
 
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fvercel%2Fnext.js%2Ftree%2Fcanary%2Fexamples%2Fwith-supabase&project-name=nextjs-with-supabase&repository-name=nextjs-with-supabase&demo-title=nextjs-with-supabase&demo-description=This+starter+configures+Supabase+Auth+to+use+cookies%2C+making+the+user%27s+session+available+throughout+the+entire+Next.js+app+-+Client+Components%2C+Server+Components%2C+Route+Handlers%2C+Server+Actions+and+Middleware.&demo-url=https%3A%2F%2Fdemo-nextjs-with-supabase.vercel.app%2F&external-id=https%3A%2F%2Fgithub.com%2Fvercel%2Fnext.js%2Ftree%2Fcanary%2Fexamples%2Fwith-supabase&demo-image=https%3A%2F%2Fdemo-nextjs-with-supabase.vercel.app%2Fopengraph-image.png)
+- [http://localhost:3000/api/search](http://localhost:3000/api/search)
+- [http://localhost:3000/api/search?q=halifax](http://localhost:3000/api/search?q=halifax)
+- [http://localhost:3000/api/search?institution=Library%20and%20Archives%20Canada](http://localhost:3000/api/search?institution=Library%20and%20Archives%20Canada)
+- [http://localhost:3000/catalog?q=halifax](http://localhost:3000/catalog?q=halifax)
 
-The above will also clone the Starter kit to your GitHub, you can clone that locally and develop locally.
+The catalog form uses those same parameters and links to the JSON route for the current search.
 
-If you wish to just develop locally and not deploy to Vercel, [follow the steps below](#clone-and-run-locally).
+`records.search_vector` is a `tsvector` maintained by a before-insert/update trigger, with a GIN index named `records_search_vector_gin`. Postgres will not store `to_tsvector` in a generated column.
 
-## Clone and run locally
+## Mapping sheets
 
-1. You'll first need a Supabase project which can be made [via the Supabase dashboard](https://database.new)
+Field labels on the record page come from `schemaFieldMap` in [`src/types/schema-map.ts`](src/types/schema-map.ts). Each sheet maps source field, Dublin Core field, Supabase column, an example value, and whether the field is required.
 
-2. Create a Next.js app using the Supabase Starter template npx command
+The three source sheets:
 
-   ```bash
-   npx create-next-app --example with-supabase with-supabase-app
-   ```
+- [Nova Scotia Archives](docs/mappings/nova-scotia-archives.md)
+- [Library and Archives Canada](docs/mappings/library-and-archives-canada.md)
+- [BCCNS](docs/mappings/bccns.md). In the CSV the publisher is `A Black People's History of Canada`.
 
-   ```bash
-   yarn create next-app --example with-supabase with-supabase-app
-   ```
+Two more publishers are loaded and mapped:
 
-   ```bash
-   pnpm create next-app --example with-supabase with-supabase-app
-   ```
+- [The Canadian Encyclopedia](docs/mappings/canadian-encyclopedia.md)
+- [Black Loyalist Heritage Centre](docs/mappings/black-loyalist-heritage-centre.md)
 
-3. Use `cd` to change into the app's directory
+No source has a community field, so `bccns_community` stays empty.
 
-   ```bash
-   cd with-supabase-app
-   ```
+## Run locally
 
-4. Rename `.env.example` to `.env.local` and update the following:
+1. Copy [`.env.example`](.env.example) to `.env`.
+2. Set `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` from the Supabase project API settings. The example file already has the project URL.
+3. Start the app:
 
-```env
-NEXT_PUBLIC_SUPABASE_URL=[INSERT SUPABASE PROJECT URL]
-NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=[INSERT SUPABASE PROJECT API PUBLISHABLE OR ANON KEY]
+```bash
+npm run dev
 ```
 
-> [!NOTE]
-> This example uses `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, which refers to Supabase's new **publishable** key format.
-> Both legacy **anon** keys and new **publishable** keys can be used with this variable name during the transition period. Supabase's dashboard may show `NEXT_PUBLIC_SUPABASE_ANON_KEY`; its value can be used in this example.
-> See the [full announcement](https://github.com/orgs/supabase/discussions/29260) for more information.
-
-Both `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` can be found in [your Supabase project's API settings](https://supabase.com/dashboard/project/_?showConnect=true)
-
-5. You can now run the Next.js local development server:
-
-   ```bash
-   npm run dev
-   ```
-
-   The starter kit should now be running on [localhost:3000](http://localhost:3000/).
-
-6. This template comes with the default shadcn/ui style initialized. If you instead want other ui.shadcn styles, delete `components.json` and [re-install shadcn/ui](https://ui.shadcn.com/docs/installation/next)
-
-> Check out [the docs for Local Development](https://supabase.com/docs/guides/getting-started/local-development) to also run Supabase locally.
-
-## Feedback and issues
-
-Please file feedback and issues over on the [Supabase GitHub org](https://github.com/supabase/supabase/issues/new/choose).
-
-## More Supabase examples
-
-- [Next.js Subscription Payments Starter](https://github.com/vercel/nextjs-subscription-payments)
-- [Cookie-based Auth and the Next.js 13 App Router (free course)](https://youtube.com/playlist?list=PL5S4mPUpp4OtMhpnp93EFSo42iQ40XjbF)
-- [Supabase Auth and the Next.js App Router](https://github.com/supabase/supabase/tree/master/examples/auth/nextjs)
+Open [http://localhost:3000/catalog](http://localhost:3000/catalog).
