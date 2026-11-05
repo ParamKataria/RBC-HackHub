@@ -10,34 +10,55 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { catalogService } from "@/lib/services";
-import { parseCatalogSearchParams, type CatalogQuery, type CatalogRecord } from "@/src/types";
+import { catalogService, searchService } from "@/lib/services";
+import {
+  parseSearchParams,
+  type CatalogRecord,
+  type SearchQuery,
+} from "@/src/types";
+import { ZodError } from "zod";
+
+const PAGE_SIZE = 20;
 
 type CatalogSearchParams = {
   q?: string | string[];
-  publisher?: string | string[];
+  institution?: string | string[];
+  type?: string | string[];
+  subject?: string | string[];
+  place?: string | string[];
+  from?: string | string[];
+  to?: string | string[];
   page?: string | string[];
 };
 
 /**
- * SOURCE OF TRUTH KEYWORDS: catalogHref, CatalogQuery, pagination, publisher
- * WHAT: Builds a catalog URL that keeps the active search.
- * WHY: Page links must not drop the publisher or text filter.
- * WHERE: Catalog result pagination.
+ * SOURCE OF TRUTH KEYWORDS: searchParamsToUrl, SearchQuery, /api/search, page
+ * WHAT: Turns the catalog query into a URL query string.
+ * WHY: Pagination and the JSON route must keep the same full-text filters.
+ * WHERE: Catalog result links.
  */
-function catalogHref(query: CatalogQuery, page: number): string {
+function searchParamsToUrl(filters: SearchQuery, page?: number): string {
   const params = new URLSearchParams();
-  if (query.q) {
-    params.set("q", query.q);
+  for (const [key, value] of Object.entries(filters)) {
+    if (value) {
+      params.set(key, value);
+    }
   }
-  if (query.publisher) {
-    params.set("publisher", query.publisher);
-  }
-  if (page > 1) {
+  if (page && page > 1) {
     params.set("page", String(page));
   }
-  const search = params.toString();
-  return search ? `/catalog?${search}` : "/catalog";
+  return params.toString();
+}
+
+/**
+ * SOURCE OF TRUTH KEYWORDS: catalogPageHref, SearchQuery, pagination
+ * WHAT: Builds a catalog page link for the active full-text filters.
+ * WHY: Page 1 with no filters should stay on /catalog.
+ * WHERE: Previous and next links.
+ */
+function catalogPageHref(filters: SearchQuery, page: number): string {
+  const query = searchParamsToUrl(filters, page);
+  return query ? `/catalog?${query}` : "/catalog";
 }
 
 /**
@@ -61,11 +82,38 @@ export async function CatalogResults({
 }: {
   searchParams: Promise<CatalogSearchParams>;
 }) {
-  const parsedQuery = parseCatalogSearchParams(await searchParams);
+  const rawParams = await searchParams;
+  const requestParams = new URLSearchParams();
+  for (const key of ["q", "institution", "type", "subject", "place", "from", "to"] as const) {
+    const value = rawParams[key];
+    const first = Array.isArray(value) ? value[0] : value;
+    if (first) {
+      requestParams.set(key, first);
+    }
+  }
+  const pageText = Array.isArray(rawParams.page) ? rawParams.page[0] : rawParams.page;
+  const requestedPage = Number.parseInt(pageText ?? "", 10);
 
-  let view;
+  let filters: SearchQuery;
   try {
-    view = await catalogService.getCatalog(parsedQuery);
+    filters = parseSearchParams(requestParams);
+  } catch (error) {
+    const message =
+      error instanceof ZodError ? (error.issues[0]?.message ?? "Invalid search") : "Invalid search";
+    return (
+      <p className="rounded-md border border-destructive/40 bg-destructive/10 p-4 text-sm text-foreground">
+        {message}
+      </p>
+    );
+  }
+
+  let header;
+  let search;
+  try {
+    [header, search] = await Promise.all([
+      catalogService.getCatalogHeader(),
+      searchService.searchRecords(filters),
+    ]);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Catalog query failed";
     return (
@@ -75,16 +123,25 @@ export async function CatalogResults({
     );
   }
 
+  const pageCount = Math.max(1, Math.ceil(search.count / PAGE_SIZE));
+  const page = Math.min(
+    Number.isFinite(requestedPage) && requestedPage > 0 ? requestedPage : 1,
+    pageCount,
+  );
+  const records = search.results.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const apiQuery = searchParamsToUrl(filters);
+  const apiHref = apiQuery ? `/api/search?${apiQuery}` : "/api/search";
+
   const totals = [
-    ["Records", view.totals.records],
-    ["Sources", view.totals.sources],
-    ["People", view.totals.people],
-    ["Places", view.totals.places],
-    ["Subjects", view.totals.subjects],
-    ["Communities", view.totals.communities],
-    ["Creator links", view.totals.recordPeople],
-    ["Place links", view.totals.recordPlaces],
-    ["Subject links", view.totals.recordSubjects],
+    ["Records", header.totals.records],
+    ["Sources", header.totals.sources],
+    ["People", header.totals.people],
+    ["Places", header.totals.places],
+    ["Subjects", header.totals.subjects],
+    ["Communities", header.totals.communities],
+    ["Creator links", header.totals.recordPeople],
+    ["Place links", header.totals.recordPlaces],
+    ["Subject links", header.totals.recordSubjects],
   ] as const;
 
   return (
@@ -94,8 +151,8 @@ export async function CatalogResults({
           Black history catalog
         </h1>
         <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
-          Postgres records loaded from the metadata CSV. The CSV has 1,166 rows.
-          Communities stay empty because no source field maps to a community.
+          This page tests the full-text route. The same filters run against Postgres
+          search_vector through GET /api/search.
         </p>
       </div>
 
@@ -110,15 +167,18 @@ export async function CatalogResults({
         ))}
       </dl>
 
-      <CatalogFilters publishers={view.publishers} query={view.query} />
+      <CatalogFilters publishers={header.publishers} query={filters} />
 
       <p className="text-sm text-muted-foreground">
-        {view.matchCount.toLocaleString()} matching records · page {view.query.page} of{" "}
-        {view.pageCount}
+        {search.count.toLocaleString()} matching records · page {page} of {pageCount}
+        {" · "}
+        <a href={apiHref} className="text-primary underline-offset-4 hover:underline">
+          {apiHref}
+        </a>
       </p>
 
       <div className="flex flex-col gap-4">
-        {view.records.map((record) => (
+        {records.map((record) => (
           <Card key={record.id}>
             <CardHeader>
               <CardTitle>
@@ -155,20 +215,20 @@ export async function CatalogResults({
             </CardContent>
           </Card>
         ))}
-        {view.records.length === 0 ? (
+        {records.length === 0 ? (
           <p className="text-sm text-muted-foreground">No records match this search.</p>
         ) : null}
       </div>
 
       <div className="flex items-center gap-3">
-        {view.query.page > 1 ? (
+        {page > 1 ? (
           <Button variant="outline" asChild>
-            <Link href={catalogHref(view.query, view.query.page - 1)}>Previous</Link>
+            <Link href={catalogPageHref(filters, page - 1)}>Previous</Link>
           </Button>
         ) : null}
-        {view.query.page < view.pageCount ? (
+        {page < pageCount ? (
           <Button variant="outline" asChild>
-            <Link href={catalogHref(view.query, view.query.page + 1)}>Next</Link>
+            <Link href={catalogPageHref(filters, page + 1)}>Next</Link>
           </Button>
         ) : null}
       </div>

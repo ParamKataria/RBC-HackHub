@@ -5,3 +5,4 @@
  * WHERE: app/catalog pages.
  */
 export * as catalogService from "./catalog";
+export * as searchService from "./search";
