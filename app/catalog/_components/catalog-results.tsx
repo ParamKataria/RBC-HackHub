@@ -1,5 +1,6 @@
 import Link from "next/link";
 
+import { AskArchive } from "@/app/catalog/_components/ask-archive";
 import { CatalogFilters } from "@/app/catalog/_components/catalog-filters";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -151,10 +152,12 @@ export async function CatalogResults({
           Black history catalog
         </h1>
         <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
-          This page tests the full-text route. The same filters run against Postgres
-          search_vector through GET /api/search.
+          Ask the archive turns a question into the same filters as GET /api/search.
+          The answer cites record ids from that search.
         </p>
       </div>
+
+      <AskArchive />
 
       <dl className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
         {totals.map(([label, value]) => (

@@ -26,3 +26,6 @@ export type { SchemaField, SchemaFieldKey } from "./schema-map";
 
 export { parseSearchParams, recordTypeValues, searchQuerySchema } from "./search";
 export type { SearchQuery, SearchResponse } from "./search";
+
+export { askQuestionSchema, askResponseSchema, noArchiveSourceMessage } from "./ask";
+export type { AskCitation, AskQuestion, AskResponse } from "./ask";

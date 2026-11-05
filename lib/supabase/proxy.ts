@@ -50,7 +50,8 @@ export async function updateSession(request: NextRequest) {
   // Catalog pages and /api/search are public reads. RLS already limits them to SELECT.
   const isPublicRead =
     request.nextUrl.pathname.startsWith("/catalog") ||
-    request.nextUrl.pathname === "/api/search";
+    request.nextUrl.pathname === "/api/search" ||
+    request.nextUrl.pathname === "/api/ask";
 
   if (
     request.nextUrl.pathname !== "/" &&

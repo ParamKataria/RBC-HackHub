@@ -25,21 +25,30 @@ function failIf(error: { message: string } | null): void {
  * SOURCE OF TRUTH KEYWORDS: searchRecords, search_vector, institution, GIN, websearch
  * WHAT: Runs one full-text query across every source, with optional filters.
  * WHY: /api/search is the single search. An empty q lists the catalog, and institution limits the publisher.
- * WHERE: app/api/search/route.ts.
+ * WHERE: app/api/search/route.ts and lib/services/ask.ts.
  */
-export async function searchRecords(filters: SearchQuery): Promise<SearchResponse> {
+export async function searchRecords(
+  filters: SearchQuery,
+  options?: { limit?: number },
+): Promise<SearchResponse> {
   const supabase = await createClient();
   const results = [];
   let count = 0;
   let offset = 0;
+  const limit = options?.limit;
 
   while (true) {
+    const remaining = limit === undefined ? PAGE_SIZE : limit - results.length;
+    if (remaining <= 0) {
+      break;
+    }
+    const pageSize = Math.min(PAGE_SIZE, remaining);
     let query = supabase
       .from("records")
       .select(SEARCH_COLUMNS, { count: "exact" })
       .order("dc_publisher", { ascending: true })
       .order("dc_title", { ascending: true })
-      .range(offset, offset + PAGE_SIZE - 1);
+      .range(offset, offset + pageSize - 1);
 
     if (filters.q) {
       query = query.textSearch("search_vector", filters.q, {
@@ -71,10 +80,10 @@ export async function searchRecords(filters: SearchQuery): Promise<SearchRespons
     const page = z.array(catalogRecordSchema).parse(data);
     count = total ?? count;
     results.push(...page);
-    if (page.length < PAGE_SIZE || results.length >= count) {
+    if (page.length < pageSize || results.length >= count) {
       break;
     }
-    offset += PAGE_SIZE;
+    offset += pageSize;
   }
 
   return { count, filters, results };

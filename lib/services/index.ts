@@ -4,5 +4,6 @@
  * WHY: Pages import the service as an object instead of reaching into Postgres themselves.
  * WHERE: app/catalog pages.
  */
+export * as askService from "./ask";
 export * as catalogService from "./catalog";
 export * as searchService from "./search";
