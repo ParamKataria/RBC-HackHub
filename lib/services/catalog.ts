@@ -118,20 +118,34 @@ async function getCatalogTotals(
 }
 
 /**
+ * SOURCE OF TRUTH KEYWORDS: getCatalogHeader, CatalogTotals, publishers, sources
+ * WHAT: Reads catalog totals and the publisher names.
+ * WHY: The test page needs those counts while the record list comes from /api/search.
+ * WHERE: app/catalog search results.
+ */
+export async function getCatalogHeader(): Promise<{
+  totals: CatalogTotals;
+  publishers: string[];
+}> {
+  const supabase = await createClient();
+  const totals = await getCatalogTotals(supabase);
+  const publishersResult = await supabase.from("sources").select("name").order("name");
+  failIf(publishersResult.error);
+  const publishers = publisherRowsSchema
+    .parse(publishersResult.data)
+    .map((source) => source.name);
+  return { totals, publishers };
+}
+
+/**
  * SOURCE OF TRUTH KEYWORDS: getCatalog, CatalogView, publisher filter, ilike search
  * WHAT: Loads one page of records plus catalog totals.
  * WHY: The sample catalog page searches Postgres without copying collection files.
  * WHERE: app/catalog/page.tsx.
  */
 export async function getCatalog(query: CatalogQuery): Promise<CatalogView> {
+  const { totals, publishers } = await getCatalogHeader();
   const supabase = await createClient();
-  const totals = await getCatalogTotals(supabase);
-
-  const publishersResult = await supabase.from("sources").select("name").order("name");
-  failIf(publishersResult.error);
-  const publishers = publisherRowsSchema
-    .parse(publishersResult.data)
-    .map((source) => source.name);
 
   let countQuery = supabase
     .from("records")

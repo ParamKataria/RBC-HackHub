@@ -7,7 +7,12 @@ import { ThemeSwitcher } from "@/components/theme-switcher";
 type CatalogPageProps = {
   searchParams: Promise<{
     q?: string | string[];
-    publisher?: string | string[];
+    institution?: string | string[];
+    type?: string | string[];
+    subject?: string | string[];
+    place?: string | string[];
+    from?: string | string[];
+    to?: string | string[];
     page?: string | string[];
   }>;
 };

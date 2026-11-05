@@ -1,11 +1,14 @@
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import type { CatalogQuery } from "@/src/types";
+import { recordTypeValues, type SearchQuery } from "@/src/types";
+
+const selectClassName =
+  "flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground shadow-sm";
 
 /**
- * SOURCE OF TRUTH KEYWORDS: CatalogFilters, publisher, search form, catalog query
- * WHAT: GET form for catalog text search and publisher filter.
- * WHY: Testers can narrow the Postgres records without a client data store.
+ * SOURCE OF TRUTH KEYWORDS: CatalogFilters, /api/search, institution, SearchQuery
+ * WHAT: GET form whose fields match the full-text search route.
+ * WHY: The catalog page is the test screen for /api/search.
  * WHERE: Catalog index page.
  */
 export function CatalogFilters({
@@ -13,26 +16,18 @@ export function CatalogFilters({
   query,
 }: {
   publishers: string[];
-  query: CatalogQuery;
+  query: SearchQuery;
 }) {
   return (
-    <form action="/catalog" className="flex flex-col gap-3 sm:flex-row sm:items-end">
-      <label className="flex flex-1 flex-col gap-1 text-sm text-muted-foreground">
-        Search title, description, or creator
-        <Input
-          name="q"
-          defaultValue={query.q}
-          placeholder="Search the catalog"
-        />
+    <form action="/catalog" className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      <label className="flex flex-col gap-1 text-sm text-muted-foreground sm:col-span-2 lg:col-span-3">
+        Search title, description, subject, place, or community
+        <Input name="q" defaultValue={query.q ?? ""} placeholder="Search all sources" />
       </label>
-      <label className="flex w-full flex-col gap-1 text-sm text-muted-foreground sm:w-72">
-        Publisher
-        <select
-          name="publisher"
-          defaultValue={query.publisher}
-          className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground shadow-sm"
-        >
-          <option value="">All publishers</option>
+      <label className="flex flex-col gap-1 text-sm text-muted-foreground">
+        Institution
+        <select name="institution" defaultValue={query.institution ?? ""} className={selectClassName}>
+          <option value="">All institutions</option>
           {publishers.map((publisher) => (
             <option key={publisher} value={publisher}>
               {publisher}
@@ -40,7 +35,36 @@ export function CatalogFilters({
           ))}
         </select>
       </label>
-      <Button type="submit">Search</Button>
+      <label className="flex flex-col gap-1 text-sm text-muted-foreground">
+        Type
+        <select name="type" defaultValue={query.type ?? ""} className={selectClassName}>
+          <option value="">All types</option>
+          {recordTypeValues.map((type) => (
+            <option key={type} value={type}>
+              {type}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="flex flex-col gap-1 text-sm text-muted-foreground">
+        Subject
+        <Input name="subject" defaultValue={query.subject ?? ""} placeholder="Subject" />
+      </label>
+      <label className="flex flex-col gap-1 text-sm text-muted-foreground">
+        Place
+        <Input name="place" defaultValue={query.place ?? ""} placeholder="Place" />
+      </label>
+      <label className="flex flex-col gap-1 text-sm text-muted-foreground">
+        From
+        <Input name="from" type="date" defaultValue={query.from ?? ""} />
+      </label>
+      <label className="flex flex-col gap-1 text-sm text-muted-foreground">
+        To
+        <Input name="to" type="date" defaultValue={query.to ?? ""} />
+      </label>
+      <div className="flex items-end">
+        <Button type="submit">Search</Button>
+      </div>
     </form>
   );
 }
