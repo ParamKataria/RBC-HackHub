@@ -23,3 +23,6 @@ export type {
 
 export { fieldLabel, schemaFieldMap } from "./schema-map";
 export type { SchemaField, SchemaFieldKey } from "./schema-map";
+
+export { parseSearchParams, recordTypeValues, searchQuerySchema } from "./search";
+export type { SearchQuery, SearchResponse } from "./search";
