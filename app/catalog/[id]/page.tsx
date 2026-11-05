@@ -4,7 +4,47 @@ import { Suspense } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { catalogService } from "@/lib/services";
-import type { CatalogRecordDetail } from "@/src/types";
+import { fieldLabel, type CatalogRecord, type CatalogRecordDetail } from "@/src/types";
+
+const storedFieldKeys = [
+  "dc_title",
+  "dc_identifier",
+  "dc_publisher",
+  "dc_source",
+  "dc_type",
+  "dc_creator",
+  "dc_date",
+  "date_text",
+  "dc_subject",
+  "dcterms_spatial",
+  "dcterms_temporal",
+  "dc_rights",
+  "dcterms_access_rights",
+  "dcterms_provenance",
+  "bccns_community",
+  "bccns_access_status",
+  "bccns_digitized",
+] as const satisfies readonly (keyof CatalogRecord)[];
+
+/**
+ * SOURCE OF TRUTH KEYWORDS: fieldText, fieldLabel, storedFieldKeys, CatalogRecord
+ * WHAT: Turns one stored catalog value into text for the detail list.
+ * WHY: The label comes from the schema map, so array and boolean columns still render.
+ * WHERE: Record detail stored-fields section.
+ */
+function fieldText(
+  record: CatalogRecord,
+  key: (typeof storedFieldKeys)[number],
+): string {
+  const value = record[key];
+  if (Array.isArray(value)) {
+    return value.join(" | ");
+  }
+  if (typeof value === "boolean") {
+    return value ? "true" : "false";
+  }
+  return value ?? "";
+}
 
 /**
  * SOURCE OF TRUTH KEYWORDS: RecordFields, CatalogRecordDetail, dc_identifier, raw_metadata
@@ -30,25 +70,7 @@ async function RecordFields({ params }: { params: Promise<{ id: string }> }) {
     notFound();
   }
 
-  const fields = [
-    ["Title", record.dc_title],
-    ["Identifier", record.dc_identifier],
-    ["Publisher", record.dc_publisher],
-    ["Source", record.dc_source],
-    ["Type", record.dc_type],
-    ["Creator", record.dc_creator],
-    ["Date", record.dc_date],
-    ["Date text", record.date_text],
-    ["Subjects", record.dc_subject.join(" | ")],
-    ["Place", record.dcterms_spatial],
-    ["Time period", record.dcterms_temporal],
-    ["Rights", record.dc_rights],
-    ["Access rights", record.dcterms_access_rights],
-    ["Provenance", record.dcterms_provenance],
-    ["Communities", record.bccns_community.join(" | ")],
-    ["Access status", record.bccns_access_status],
-    ["Digitized", record.bccns_digitized ? "true" : "false"],
-  ] as const;
+  const fields = storedFieldKeys.map((key) => [fieldLabel(key), fieldText(record, key)] as const);
 
   const linkedPeople = record.record_people.map(
     (link) => `${link.people.name} (${link.role})`,
@@ -109,7 +131,7 @@ async function RecordFields({ params }: { params: Promise<{ id: string }> }) {
         <dl className="divide-y divide-border rounded-lg border border-border">
           {Object.entries(record.raw_metadata).map(([key, value]) => (
             <div key={key} className="grid gap-1 px-4 py-3 sm:grid-cols-3">
-              <dt className="text-sm text-muted-foreground">{key}</dt>
+              <dt className="text-sm text-muted-foreground">{fieldLabel(key)}</dt>
               <dd className="break-words text-sm text-foreground sm:col-span-2">
                 {value.length > 0 ? value : "—"}
               </dd>
