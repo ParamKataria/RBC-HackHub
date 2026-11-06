@@ -195,7 +195,7 @@ export const ROOM_PORTAL_THEME: Record<CollectionKey, RoomPortalTheme> = {
  * WHERE: bccns-archive-experience.tsx and geometry.ts.
  */
 export function computeRoomLimitsForStationCount(stationCount: number): RoomLimitConfig {
-  const minX = -50.1;
+  const minX = -50.5;
   const effectiveCount = Math.max(2, stationCount);
   const span = Math.max(25.2, (effectiveCount - 1) * 7.2 + 5.6);
   const maxX = +(minX + span).toFixed(1);
@@ -209,13 +209,9 @@ export function computeRoomConfig(
 ): RoomConfigMetrics {
   const pathLength = Math.max(1, maxX - minX);
   const picturesDistanceFromStart = pictureXPositions.map((picX) => {
-    // Camera is at viewNode.x - 2 looking down +X; optimal viewing distance is ~3.2 units before picX
-    const optimalViewX = THREE.MathUtils.clamp(
-      picX - 3.2,
-      minX + pathLength * 0.04,
-      maxX - pathLength * 0.06,
-    );
-    return THREE.MathUtils.clamp((optimalViewX - minX) / pathLength, 0.04, 0.94);
+    // Camera sits 2 units behind viewNode, looking down +X. 4.8 keeps the canted frame in view without standing across the hall.
+    const optimalViewX = THREE.MathUtils.clamp(picX - 4.8, minX, maxX - 0.5);
+    return THREE.MathUtils.clamp((optimalViewX - minX) / pathLength, 0, 1);
   });
 
   const picturesDistanceFromPrev = picturesDistanceFromStart.map((d, idx) =>

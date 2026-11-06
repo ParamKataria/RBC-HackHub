@@ -1295,7 +1295,7 @@ export async function buildMuseumRoomScene({
 
   // 5. Framed Archival Stations Hanging on the Museum Gallery Walls
   const stations = collection.stations || [];
-  const firstPicX = -44.6;
+  const firstPicX = -38.2;
   const lastPicX = maxX - 2.4;
   const picStepX =
     stations.length > 1 ? (lastPicX - firstPicX) / (stations.length - 1) : 7.2;

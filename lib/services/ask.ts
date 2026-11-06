@@ -6,14 +6,18 @@ import {
   noArchiveSourceMessage,
   type AskCitation,
   type AskResponse,
+  type AskView,
 } from "@/src/types/ask";
 import type { CatalogRecord } from "@/src/types/catalog";
-import { recordTypeValues, searchQuerySchema, type SearchQuery } from "@/src/types/search";
+import type { CollectionKey } from "@/src/types/museum";
+import { recordTypeValues, searchQuerySchema, type SearchQuery, type SearchResponse } from "@/src/types/search";
 import { z } from "zod";
 
-import { searchRecords } from "./search";
+import { getArchivePayload } from "./archive";
+import { recordsByIds, searchRecords } from "./search";
 
-const EVIDENCE_LIMIT = 8;
+const EVIDENCE_LIMIT = 32;
+const EVIDENCE_POOL = 80;
 
 const MODELS = ["gemini-3.1-flash-lite", "gemini-3.5-flash-lite", "gemini-3.8-flash"];
 
@@ -322,6 +326,27 @@ function evidenceCitations(records: readonly CatalogRecord[]): AskCitation[] {
 }
 
 /**
+ * SOURCE OF TRUTH KEYWORDS: citedRecords, record id, AskCitation, claimLines
+ * WHAT: Keeps the records named by the summary sentences, in the order they are used.
+ * WHY: The model reads a wide set, and the panel should link the records that sentence actually used.
+ * WHERE: askArchive, when building the response citations.
+ */
+function citedRecords(lines: readonly string[], records: readonly CatalogRecord[]): CatalogRecord[] {
+  const byId = new Map(records.map((record) => [record.id.toLowerCase(), record]));
+  const chosen: CatalogRecord[] = [];
+  const seen = new Set<string>();
+  for (const line of lines) {
+    for (const id of line.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi) ?? []) {
+      const record = byId.get(id.toLowerCase());
+      if (!record || seen.has(record.id)) continue;
+      seen.add(record.id);
+      chosen.push(record);
+    }
+  }
+  return chosen;
+}
+
+/**
  * SOURCE OF TRUTH KEYWORDS: sourceBlock, record id, Sources, citation
  * WHAT: Lists every retrieved record as a title plus its record id.
  * WHY: The answer text cites each record id that was given to the model.
@@ -353,8 +378,12 @@ function countLead(count: number, cited: number): string {
 function claimLines(
   claims: readonly { text: string; recordIds: string[] }[],
   records: readonly CatalogRecord[],
+  extraIds: ReadonlyMap<string, unknown> = new Map(),
 ): string[] {
   const idsByLower = new Map(records.map((record) => [record.id.toLowerCase(), record.id]));
+  for (const id of extraIds.keys()) {
+    idsByLower.set(id.toLowerCase(), id);
+  }
   const lines: string[] = [];
   for (const claim of claims) {
     const requested = [...new Set(claim.recordIds.map((id) => id.trim().toLowerCase()))];
@@ -377,12 +406,192 @@ function claimLines(
 }
 
 /**
+ * SOURCE OF TRUTH KEYWORDS: broadenSearch, SearchQuery, empty q, subject place
+ * WHAT: Repeats a search without the keyword filter when the full filter set matches nothing.
+ * WHY: A question like "what year was Africville founded" should still retrieve Africville records when "founded" is not stored on them.
+ * WHERE: askArchive, after the first searchRecords call.
+ */
+async function broadenSearch(filters: SearchQuery): Promise<SearchResponse> {
+  const first = await searchRecords(filters, { limit: EVIDENCE_POOL });
+  if (first.count > 0 || !filters.q) {
+    return first;
+  }
+  const hasOtherFilter = Boolean(
+    filters.institution || filters.type || filters.subject || filters.place || filters.from || filters.to,
+  );
+  if (!hasOtherFilter) {
+    return first;
+  }
+  return searchRecords({ ...filters, q: undefined }, { limit: EVIDENCE_POOL });
+}
+
+const QUESTION_STOP_WORDS = new Set([
+  "when",
+  "was",
+  "were",
+  "the",
+  "and",
+  "for",
+  "what",
+  "who",
+  "where",
+  "did",
+  "does",
+  "how",
+  "which",
+  "year",
+  "first",
+  "about",
+  "from",
+  "with",
+  "that",
+  "this",
+]);
+
+/**
+ * SOURCE OF TRUTH KEYWORDS: questionTokens, QUESTION_STOP_WORDS, SearchQuery
+ * WHAT: Keeps the content words from a question.
+ * WHY: Retrieval and ranking use the words the person asked, with no topic list of our own.
+ * WHERE: gatherRecords and selectEvidence.
+ */
+function questionTokens(question: string): string[] {
+  return (question.toLowerCase().match(/[a-z0-9]+/g) ?? []).filter(
+    (token) => token.length > 2 && !QUESTION_STOP_WORDS.has(token),
+  );
+}
+
+/**
+ * SOURCE OF TRUTH KEYWORDS: gatherRecords, place, subject, EVIDENCE_POOL, SearchQuery
+ * WHAT: Unions the filtered search with the same name looked up as a place and as a subject.
+ * WHY: One heading misses records filed under the other, and the summary can only use records it was given.
+ * WHERE: askArchive, after broadenSearch.
+ */
+async function gatherRecords(
+  question: string,
+  filters: SearchQuery,
+  primary: readonly CatalogRecord[],
+): Promise<CatalogRecord[]> {
+  const merged = new Map(primary.map((record) => [record.id, record]));
+  const companions: SearchQuery[] = [];
+  if (filters.place && filters.subject) {
+    companions.push(searchQuerySchema.parse({ place: filters.place }));
+    companions.push(searchQuerySchema.parse({ subject: filters.subject }));
+  } else if (filters.subject) {
+    companions.push(searchQuerySchema.parse({ place: filters.subject }));
+  } else if (filters.place) {
+    companions.push(searchQuerySchema.parse({ subject: filters.place }));
+  }
+  const words = questionTokens(question).filter(
+    (token) => token !== filters.place?.toLowerCase() && token !== filters.subject?.toLowerCase(),
+  );
+  const scope = filters.place ?? filters.subject;
+  if (scope && words.length > 0) {
+    companions.push(
+      searchQuerySchema.parse({
+        q: words.join(" OR "),
+        place: scope,
+      }),
+    );
+  }
+  for (const query of companions) {
+    const extra = await searchRecords(query, { limit: EVIDENCE_POOL });
+    for (const record of extra.results) {
+      merged.set(record.id, record);
+    }
+  }
+  return [...merged.values()];
+}
+
+/**
+ * SOURCE OF TRUTH KEYWORDS: selectEvidence, EVIDENCE_LIMIT, questionTokens, CatalogRecord
+ * WHAT: Orders the gathered records by how many question words they contain and keeps a wide set.
+ * WHY: Alphabetical catalog order hides a matching article behind the first photographs.
+ * WHERE: askArchive, before the summary prompt.
+ */
+type WallRecord = {
+  id: string;
+  title: string;
+  description: string | null;
+  dateText: string | null;
+  place: string | null;
+  subjects: string[];
+  collectionKey: CollectionKey;
+};
+
+/**
+ * SOURCE OF TRUTH KEYWORDS: recordsInView, AskView, getArchivePayload, recordsByIds
+ * WHAT: Resolves the gallery, and the picture in front of the viewer, from the archive payload.
+ * WHY: The browser only sends a collection key and record id. The text the model reads is loaded on the server.
+ * WHERE: askArchive, before the summary prompt.
+ */
+async function recordsInView(view: AskView | undefined): Promise<{
+  note: string;
+  records: CatalogRecord[];
+  wall: WallRecord[];
+}> {
+  if (!view) {
+    return { note: "", records: [], wall: [] };
+  }
+  const payload = await getArchivePayload();
+  const collection = payload.collections.find((item) => item.key === view.collectionKey);
+  if (!collection) {
+    return { note: "", records: [], wall: [] };
+  }
+  const lookedAt =
+    view.scope === "record" && view.recordId
+      ? collection.stations.find((station) => station.id === view.recordId)
+      : undefined;
+  const stations = lookedAt ? [lookedAt] : collection.stations.slice(0, 12);
+  const note = lookedAt
+    ? `The viewer is looking at the record "${lookedAt.dc_title}" (${lookedAt.display_year}) in the gallery "${collection.title}" (${collection.period}).`
+    : `The viewer is standing in the gallery "${collection.title}" (${collection.period}). ${collection.summary}`;
+  const uuidIds = stations
+    .map((station) => station.id)
+    .filter((id) => z.string().uuid().safeParse(id).success);
+  const records = await recordsByIds(uuidIds);
+  const found = new Set(records.map((record) => record.id));
+  const wall = stations
+    .filter((station) => !found.has(station.id))
+    .map((station) => ({
+      id: station.id,
+      title: station.dc_title,
+      description: station.dc_description,
+      dateText: station.date_text ?? station.display_year,
+      place: station.dcterms_spatial,
+      subjects: station.dc_subject,
+      collectionKey: view.collectionKey,
+    }));
+  return { note, records, wall };
+}
+
+function selectEvidence(question: string, records: readonly CatalogRecord[]): CatalogRecord[] {
+  const tokens = questionTokens(question);
+  const scored = records.map((record) => {
+    const title = record.dc_title.toLowerCase();
+    const haystack = `${title} ${record.dc_description ?? ""} ${record.date_text ?? ""} ${record.dcterms_temporal ?? ""}`.toLowerCase();
+    let score = 0;
+    for (const token of tokens) {
+      if (title.includes(token)) score += 3;
+      else if (haystack.includes(token)) score += 1;
+    }
+    return { record, score, descriptionLength: record.dc_description?.length ?? 0 };
+  });
+  scored.sort(
+    (left, right) =>
+      right.score - left.score ||
+      right.descriptionLength - left.descriptionLength ||
+      left.record.dc_title.localeCompare(right.record.dc_title),
+  );
+  return scored.slice(0, EVIDENCE_LIMIT).map((entry) => entry.record);
+}
+
+/**
  * SOURCE OF TRUTH KEYWORDS: askArchive, /api/ask, SearchQuery, citation, Gemini
  * WHAT: Translates a question into search filters, retrieves records, and summarizes only those records.
  * WHY: The model is not allowed to answer from general knowledge. No matching records produces a no-source reply.
  * WHERE: app/api/ask/route.ts.
  */
-export async function askArchive(question: string): Promise<AskResponse> {
+export async function askArchive(question: string, view?: AskView): Promise<AskResponse> {
   const { publishers, subjects } = await askVocabulary();
   const filterPrompt = [
     "Translate the archive question into search filters. Do not answer the question.",
@@ -391,6 +600,7 @@ export async function askArchive(question: string): Promise<AskResponse> {
     `type must be empty or exactly one of: ${recordTypeValues.join(" | ")}`,
     `subject must be empty or exactly one of: ${subjects.join(" | ")}`,
     "subject is an exact heading. Leave it empty unless the question names that heading.",
+    "A community or place name goes in place, even when the same words exist as a subject heading.",
     "place is only the place name, such as Preston.",
     "q is a few keywords that appear in a title or description. Leave q empty when place, institution, type, or subject already identifies the records.",
     "Do not put century labels such as 1800s or 19th century in q, from, or to. Those words are not stored on the records.",
@@ -407,7 +617,8 @@ export async function askArchive(question: string): Promise<AskResponse> {
     subjects,
   );
 
-  if (!hasSearchFilter(filters)) {
+  const viewed = await recordsInView(view);
+  if (!hasSearchFilter(filters) && viewed.records.length === 0 && viewed.wall.length === 0) {
     return askResponseSchema.parse({
       question,
       filters,
@@ -417,8 +628,14 @@ export async function askArchive(question: string): Promise<AskResponse> {
     });
   }
 
-  const search = await searchRecords(filters, { limit: EVIDENCE_LIMIT });
-  if (search.count === 0 || search.results.length === 0) {
+  const search = hasSearchFilter(filters)
+    ? await broadenSearch(filters)
+    : { count: 0, filters, results: [] };
+  if (
+    (search.count === 0 || search.results.length === 0) &&
+    viewed.records.length === 0 &&
+    viewed.wall.length === 0
+  ) {
     return askResponseSchema.parse({
       question,
       filters,
@@ -428,15 +645,42 @@ export async function askArchive(question: string): Promise<AskResponse> {
     });
   }
 
-  const records = search.results;
+  const gathered = hasSearchFilter(filters)
+    ? await gatherRecords(question, search.filters, search.results)
+    : [];
+  const viewedIds = new Set(viewed.records.map((record) => record.id));
+  const ranked = selectEvidence(
+    question,
+    gathered.filter((record) => !viewedIds.has(record.id)),
+  );
+  const records = [...viewed.records, ...ranked].slice(0, EVIDENCE_LIMIT);
+  const wallById = new Map(viewed.wall.map((record) => [record.id.toLowerCase(), record]));
   const summaryPrompt = [
-    "Summarize only the archive records in the JSON. Do not add history, context, or facts that are not written in those records.",
+    viewed.note,
+    `Question: ${question}`,
+    "Answer that question using only the archive records in the JSON and the viewer line above. Do not add history, context, or facts that are not written there.",
+    "When the viewer line names a record or gallery, answer about that unless the question clearly asks about something else.",
+    "The first claim must answer the question. If none of the records state that fact, the first claim must say so.",
     "Return claims. Each claim is one sentence in text, and recordIds lists the record ids that sentence uses.",
     "Every recordIds value must be copied from the records. If a fact is not in a record, omit it.",
     "Do not put a record id inside text.",
-    "Only mention a date when that record's date, dateText, or timePeriod contains it.",
-    "Write at most 6 claims.",
-    JSON.stringify(records.map(recordBrief)),
+    "A date may be mentioned only when that same record's date, dateText, timePeriod, or description writes it.",
+    "Write at most 4 claims.",
+    JSON.stringify([
+      ...viewed.wall.map((record) => ({
+        id: record.id,
+        title: record.title,
+        type: "record",
+        publisher: "",
+        date: null,
+        dateText: record.dateText,
+        place: record.place,
+        timePeriod: null,
+        subjects: record.subjects,
+        description: record.description?.slice(0, 500) ?? null,
+      })),
+      ...records.map(recordBrief),
+    ]),
   ].join("\n");
 
   let lines: string[] = [];
@@ -444,12 +688,16 @@ export async function askArchive(question: string): Promise<AskResponse> {
     const drafted = modelClaimsSchema.parse(
       await generateJson(summaryPrompt, claimsJsonSchema),
     );
-    lines = claimLines(drafted.claims ?? [], records);
+    lines = claimLines(drafted.claims ?? [], records, wallById);
   } catch {
     lines = [];
   }
 
-  const lead = countLead(search.count, records.length);
+  const cited = citedRecords(lines, records);
+  const citedWall = viewed.wall.filter((record) =>
+    lines.some((line) => line.toLowerCase().includes(record.id.toLowerCase())),
+  );
+  const lead = countLead(Math.max(search.count, gathered.length), records.length);
   const body =
     lines.length > 0
       ? lines.join("\n\n")
@@ -459,8 +707,15 @@ export async function askArchive(question: string): Promise<AskResponse> {
   return askResponseSchema.parse({
     question,
     filters: search.filters,
-    count: search.count,
+    count: Math.max(search.count, gathered.length),
     summary,
-    citations: evidenceCitations(records),
+    citations: [
+      ...citedWall.map((record) => ({
+        id: record.id,
+        title: record.title,
+        collectionKey: record.collectionKey,
+      })),
+      ...evidenceCitations(cited.length > 0 ? cited : records),
+    ].slice(0, 4),
   });
 }

@@ -6,6 +6,7 @@ import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { Reflector } from "three/examples/jsm/objects/Reflector.js";
 import { archiveEffects, archiveGeometry } from "@/src/lib/archive";
+import { ArchiveAsk } from "@/src/components/archive/archive-ask";
 import type {
   AppMode,
   ArchiveCollection,
@@ -39,6 +40,87 @@ interface PreloaderState {
 
 function shortestAngleDiffDeg(fromDeg: number, toDeg: number): number {
   return ((((toDeg - fromDeg) % 360) + 540) % 360) - 180;
+}
+
+/**
+ * SOURCE OF TRUTH KEYWORDS: nearestPortalDelta, PORTAL_CONFIGS, lock-on, rotunda
+ * WHAT: Signed turn, in radians, from the current heading to the nearest gallery door.
+ * WHY: The rotunda should settle on a door instead of resting in the gap between them.
+ * WHERE: The hall animation loop and the arrow keys.
+ */
+function nearestPortalDelta(fromRad: number): number {
+  const fromDeg = ((THREE.MathUtils.radToDeg(fromRad) % 360) + 360) % 360;
+  let best = 0;
+  let bestAbs = Infinity;
+  for (const cfg of archiveEffects.PORTAL_CONFIGS) {
+    const diff = shortestAngleDiffDeg(fromDeg, cfg.angleDeg);
+    const abs = Math.abs(diff);
+    if (abs < bestAbs) {
+      bestAbs = abs;
+      best = diff;
+    }
+  }
+  return THREE.MathUtils.degToRad(best);
+}
+
+/**
+ * SOURCE OF TRUTH KEYWORDS: portalStepDelta, ArrowLeft, ArrowRight, rotunda
+ * WHAT: Signed turn to the next door in the requested direction, skipping the one already centered.
+ * WHY: A key press should advance one lock-on stop, not a fraction of the gap.
+ * WHERE: Hall arrow keys.
+ */
+function portalStepDelta(fromRad: number, direction: 1 | -1): number {
+  const fromDeg = ((THREE.MathUtils.radToDeg(fromRad) % 360) + 360) % 360;
+  let best = direction * 360;
+  for (const cfg of archiveEffects.PORTAL_CONFIGS) {
+    const diff = shortestAngleDiffDeg(fromDeg, cfg.angleDeg);
+    if (Math.abs(diff) < 2) continue;
+    if (direction > 0 && diff > 0 && diff < best) best = diff;
+    if (direction < 0 && diff < 0 && diff > best) best = diff;
+  }
+  if (Math.abs(best) > 180) return THREE.MathUtils.degToRad(direction * 60);
+  return THREE.MathUtils.degToRad(best);
+}
+
+/**
+ * SOURCE OF TRUTH KEYWORDS: coastStationX, roomTargetX, picture lock-on, momentum
+ * WHAT: Picks the picture to settle on, continuing forward when the walk has already left the previous one.
+ * WHY: Stopping short of the halfway point should finish the move, not fall back.
+ * WHERE: The gallery animation loop.
+ */
+function coastStationX(
+  fromX: number,
+  travel: number,
+  gestureStart: number,
+  minX: number,
+  maxX: number,
+  roomConfig: RoomConfigMetrics | null,
+  count: number,
+): number {
+  const span = Math.max(0.001, maxX - minX);
+  const viewX = (index: number) =>
+    minX + (archiveEffects.getMarkerPercentage(index, roomConfig) / 100) * span;
+  const stops = Array.from({ length: count }, (_, index) => viewX(index));
+  let nearest = fromX;
+  let nearestDist = Infinity;
+  for (const stop of stops) {
+    const dist = Math.abs(stop - fromX);
+    if (dist < nearestDist) {
+      nearestDist = dist;
+      nearest = stop;
+    }
+  }
+  if (Math.abs(travel) <= 0.9 || stops.length === 0) return nearest;
+  let origin = -1;
+  for (let index = 0; index < stops.length; index += 1) {
+    if (stops[index] <= gestureStart + 0.25) origin = index;
+  }
+  if (travel > 0) {
+    const dest = origin + 1;
+    return stops[Math.min(Math.max(dest, 0), stops.length - 1)];
+  }
+  const dest = origin < 0 ? 0 : origin - 1;
+  return stops[Math.max(dest, 0)];
 }
 
 /**
@@ -256,6 +338,14 @@ export function BccnsArchiveExperience({
   const scrubberLineRef = useRef<HTMLDivElement | null>(null);
   const scrubberHandleRef = useRef<HTMLDivElement | null>(null);
   const cursorRef = useRef<HTMLDivElement | null>(null);
+  const askViewKeyRef = useRef("");
+  const [hallClueHiddenFor, setHallClueHiddenFor] = useState<CollectionKey | null>(null);
+  const [askView, setAskView] = useState<{
+    scope: "room" | "record";
+    collectionKey: CollectionKey;
+    recordId?: string;
+    label: string;
+  } | null>(null);
 
   const engineRef = useRef<{
     renderer: THREE.WebGLRenderer | null;
@@ -298,6 +388,11 @@ export function BccnsArchiveExperience({
     roomLookRotY: number;
     roomTargetLookRotX: number;
     roomTargetLookRotY: number;
+    hallTravel: number;
+    roomTravel: number;
+    roomGestureStart: number;
+    hallLatch: number | null;
+    roomLatch: number | null;
     hoveredPortalCfg: PortalConfig | null;
     hoveredPicMesh: THREE.Mesh | null;
     hoveredRoomPortalMesh: THREE.Mesh | null;
@@ -342,6 +437,11 @@ export function BccnsArchiveExperience({
     roomLookRotY: 0,
     roomTargetLookRotX: 0,
     roomTargetLookRotY: 0,
+    hallTravel: 0,
+    roomTravel: 0,
+    roomGestureStart: -50.1,
+    hallLatch: null,
+    roomLatch: null,
     hoveredPortalCfg: null,
     hoveredPicMesh: null,
     hoveredRoomPortalMesh: null,
@@ -402,6 +502,8 @@ export function BccnsArchiveExperience({
       ((THREE.MathUtils.radToDeg(st.targetRotY) % 360) + 360) % 360;
     const shortestDiff = shortestAngleDiffDeg(currentDeg, targetDeg);
     st.targetRotY += THREE.MathUtils.degToRad(shortestDiff);
+    st.hallTravel = 0;
+    st.hallLatch = null;
   };
 
   const setRoomProgressPercent = (pct: number) => {
@@ -409,6 +511,9 @@ export function BccnsArchiveExperience({
     const clamped = Math.max(0, Math.min(100, pct));
     const span = Math.max(0.001, st.roomMaxX - st.roomMinX);
     st.roomTargetX = st.roomMinX + (clamped / 100) * span;
+    st.roomTravel = 0;
+    st.roomGestureStart = st.roomTargetX;
+    st.roomLatch = null;
     st.roomProgress = clamped;
     setRoomProgress(clamped);
   };
@@ -562,6 +667,8 @@ export function BccnsArchiveExperience({
     }
 
     st.appMode = "hall";
+    askViewKeyRef.current = "";
+    setAskView(null);
     setAppMode("hall");
     setWelcomeOpen(false);
     setVoiceOpen(false);
@@ -635,6 +742,25 @@ export function BccnsArchiveExperience({
     st.welcomeOpen = false;
 
     setCurrentCollectionKey(validKey);
+    const linkedStation = options?.initialRecordId
+      ? targetCollection.stations.find((station) => station.id === options.initialRecordId)
+      : undefined;
+    if (linkedStation) {
+      askViewKeyRef.current = `record|${validKey}|${linkedStation.id}`;
+      setAskView({
+        scope: "record",
+        collectionKey: validKey,
+        recordId: linkedStation.id,
+        label: linkedStation.dc_title,
+      });
+    } else {
+      askViewKeyRef.current = `room|${validKey}|`;
+      setAskView({
+        scope: "room",
+        collectionKey: validKey,
+        label: targetCollection.title,
+      });
+    }
     setAppMode("museum");
     setWelcomeOpen(false);
     setVoiceOpen(false);
@@ -799,6 +925,9 @@ export function BccnsArchiveExperience({
     st.activeCamera = roomBuild.camera;
     st.roomCurrentX = st.roomMinX;
     st.roomTargetX = st.roomMinX;
+    st.roomTravel = 0;
+    st.roomLatch = null;
+    st.roomGestureStart = st.roomMinX;
     st.roomProgress = 0;
     st.activeStationIndex = 0;
     st.roomLookRotX = 0;
@@ -819,6 +948,7 @@ export function BccnsArchiveExperience({
         const span = st.roomMaxX - st.roomMinX;
         st.roomCurrentX = st.roomMinX + (pct / 100) * span;
         st.roomTargetX = st.roomCurrentX;
+        st.roomGestureStart = st.roomCurrentX;
         st.roomProgress = pct;
         st.activeStationIndex = targetIdx;
         setRoomProgress(pct);
@@ -903,17 +1033,37 @@ export function BccnsArchiveExperience({
       const st = engineRef.current;
       if (!st.arrivalHidden || st.modalBlocking) return;
 
-      if (e.key === "ArrowLeft") {
+      if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+        const forward = e.key === "ArrowRight";
         if (st.appMode === "hall") {
-          st.targetRotY += THREE.MathUtils.degToRad(15);
-        } else {
-          st.roomTargetX = Math.max(st.roomMinX, st.roomTargetX - 2.4);
-        }
-      } else if (e.key === "ArrowRight") {
-        if (st.appMode === "hall") {
-          st.targetRotY -= THREE.MathUtils.degToRad(15);
-        } else {
-          st.roomTargetX = Math.min(st.roomMaxX, st.roomTargetX + 2.4);
+          st.hallTravel = 0;
+          st.hallLatch = null;
+          st.targetRotY += portalStepDelta(st.targetRotY, forward ? -1 : 1);
+        } else if (st.currentRoomBuild) {
+          const count = st.currentRoomBuild.pictureMeshes.length;
+          const span = Math.max(0.001, st.roomMaxX - st.roomMinX);
+          const viewX = (index: number) =>
+            st.roomMinX +
+            (archiveEffects.getMarkerPercentage(index, st.currentRoomBuild?.roomConfig) / 100) * span;
+          let nearest = 0;
+          let nearestDist = Infinity;
+          for (let index = 0; index < count; index += 1) {
+            const dist = Math.abs(viewX(index) - st.roomTargetX);
+            if (dist < nearestDist) {
+              nearestDist = dist;
+              nearest = index;
+            }
+          }
+          const next = THREE.MathUtils.clamp(
+            nearest + (forward ? 1 : -1),
+            0,
+            Math.max(0, count - 1),
+          );
+          const stepped = nearestDist < 0.45 ? next : nearest;
+          st.roomTravel = 0;
+          st.roomLatch = null;
+          st.roomTargetX = THREE.MathUtils.clamp(viewX(stepped), st.roomMinX, st.roomMaxX);
+          st.roomGestureStart = st.roomTargetX;
         }
       }
     };
@@ -1043,18 +1193,30 @@ export function BccnsArchiveExperience({
     let hallTargetYaw = 0;
     let hallPitch = 0;
     let hallTargetPitch = 0;
+    let hallInputAt = 0;
+    let roomInputAt = 0;
 
     const onWheel = (e: WheelEvent) => {
+      const wheelTarget = e.target as HTMLElement | null;
+      if (wheelTarget?.closest("header")) return;
       if (!st.arrivalHidden || st.modalBlocking) return;
       if (st.appMode === "hall") {
+        hallInputAt = performance.now();
+        st.hallLatch = null;
         const delta = THREE.MathUtils.clamp(e.deltaY * 0.002, -0.1, 0.1);
+        st.hallTravel += delta;
         st.targetRotY += delta;
       } else if (st.appMode === "museum") {
+        roomInputAt = performance.now();
+        st.roomLatch = null;
         if (st.welcomeOpen) {
           closeWelcomeCard();
         }
+        const roomDelta = e.deltaY * 0.012;
+        if (st.roomTravel === 0) st.roomGestureStart = st.roomTargetX;
+        st.roomTravel += roomDelta;
         st.roomTargetX = THREE.MathUtils.clamp(
-          st.roomTargetX + e.deltaY * 0.012,
+          st.roomTargetX + roomDelta,
           st.roomMinX,
           st.roomMaxX,
         );
@@ -1101,6 +1263,7 @@ export function BccnsArchiveExperience({
       pointerNDC.y = -(e.clientY / window.innerHeight) * 2 + 1;
 
       if (isScrubbing && st.appMode === "museum" && scrubberTrackRef.current) {
+        roomInputAt = performance.now();
         const rect = scrubberTrackRef.current.getBoundingClientRect();
         setRoomProgressPercent(((e.clientX - rect.left) / rect.width) * 100);
         return;
@@ -1110,9 +1273,12 @@ export function BccnsArchiveExperience({
 
       if (st.appMode === "hall") {
         if (isDragging) {
+          hallInputAt = performance.now();
+          st.hallLatch = null;
           const dx = e.clientX - prevPointerX;
           prevPointerX = e.clientX;
           const delta = THREE.MathUtils.clamp(dx * 0.006, -0.6, 0.6);
+          st.hallTravel += delta;
           st.targetRotY += delta;
         }
 
@@ -1173,6 +1339,8 @@ export function BccnsArchiveExperience({
         );
 
         if (isDragging) {
+          roomInputAt = performance.now();
+          st.roomLatch = null;
           const dx = e.clientX - prevPointerX;
           const dy = e.clientY - prevPointerY;
           prevPointerX = e.clientX;
@@ -1182,8 +1350,11 @@ export function BccnsArchiveExperience({
           if (st.welcomeOpen && Math.abs(primaryDelta) > 4) {
             closeWelcomeCard();
           }
+          const roomDelta = primaryDelta * 0.045;
+          if (st.roomTravel === 0) st.roomGestureStart = st.roomTargetX;
+          st.roomTravel += roomDelta;
           st.roomTargetX = THREE.MathUtils.clamp(
-            st.roomTargetX + primaryDelta * 0.045,
+            st.roomTargetX + roomDelta,
             st.roomMinX,
             st.roomMaxX,
           );
@@ -1237,6 +1408,16 @@ export function BccnsArchiveExperience({
             .stationData as ArchiveStation;
           document.body.style.cursor = "pointer";
           setCursorInteractive(true);
+          const viewKey = `record|${st.currentCollectionKey}|${station.id}`;
+          if (askViewKeyRef.current !== viewKey) {
+            askViewKeyRef.current = viewKey;
+            setAskView({
+              scope: "record",
+              collectionKey: st.currentCollectionKey,
+              recordId: station.id,
+              label: station.dc_title,
+            });
+          }
           setPortalPromptText(
             `READ RECORD: ${station.dc_title} (${station.display_year})`,
           );
@@ -1351,6 +1532,22 @@ export function BccnsArchiveExperience({
 
       if (st.appMode === "hall" && st.viewNode) {
         const diff = st.targetRotY - st.currentRotY;
+        const hallIdle = st.arrivalHidden && !isDragging && performance.now() - hallInputAt > 180;
+        if (!hallIdle) {
+          st.hallLatch = null;
+        } else {
+          if (st.hallLatch === null) {
+            const commit = THREE.MathUtils.degToRad(7);
+            const delta =
+              Math.abs(st.hallTravel) > commit
+                ? portalStepDelta(st.targetRotY, st.hallTravel > 0 ? 1 : -1)
+                : nearestPortalDelta(st.targetRotY);
+            st.hallLatch = st.targetRotY + delta;
+            st.hallTravel = 0;
+          }
+          const pull = 1 - Math.exp(-2.8 * dt);
+          st.targetRotY += (st.hallLatch - st.targetRotY) * pull;
+        }
         if (Math.abs(diff) > 1e-4) {
           st.rotationSpeed = Math.min(st.rotationSpeed + 0.3 * dt, 0.12);
           const step = THREE.MathUtils.clamp(
@@ -1394,6 +1591,30 @@ export function BccnsArchiveExperience({
         st.currentRoomBuild &&
         st.viewNode
       ) {
+        const roomIdle =
+          st.arrivalHidden &&
+          !st.modalBlocking &&
+          !isDragging &&
+          !isScrubbing &&
+          performance.now() - roomInputAt > 180;
+        if (!roomIdle) {
+          st.roomLatch = null;
+        } else if (st.currentRoomBuild.pictureMeshes.length > 0) {
+          if (st.roomLatch === null) {
+            st.roomLatch = coastStationX(
+              st.roomTargetX,
+              st.roomTravel,
+              st.roomGestureStart,
+              st.roomMinX,
+              st.roomMaxX,
+              st.currentRoomBuild.roomConfig,
+              st.currentRoomBuild.pictureMeshes.length,
+            );
+            st.roomTravel = 0;
+          }
+          const pull = 1 - Math.exp(-2.6 * dt);
+          st.roomTargetX += (st.roomLatch - st.roomTargetX) * pull;
+        }
         st.roomCurrentX += (st.roomTargetX - st.roomCurrentX) * 0.085;
         st.viewNode.position.x = st.roomCurrentX;
 
@@ -1536,6 +1757,20 @@ export function BccnsArchiveExperience({
   const activeHallPortal =
     archiveEffects.PORTAL_CONFIGS[activePortalId] ??
     archiveEffects.PORTAL_CONFIGS[0];
+  const roomClue = askView ?? {
+    scope: "room" as const,
+    collectionKey: activeCollection.key,
+    label: activeCollection.title,
+  };
+  const hallClue =
+    hallClueHiddenFor === activeHallPortal.collectionKey
+      ? null
+      : {
+          scope: "room" as const,
+          collectionKey: activeHallPortal.collectionKey,
+          label: activeHallPortal.title,
+        };
+  const askClue = appMode === "museum" ? roomClue : hallClue;
 
   const copyRecordDeepLink = async () => {
     if (!selectedRecordModal || typeof window === "undefined") return;
@@ -1578,71 +1813,61 @@ export function BccnsArchiveExperience({
         aria-hidden="true"
       />
 
-      {/* Top Chrome — Hairline and circular, sitting on top of the scene */}
+      {/* Top Chrome — type only, sitting on the scene */}
       <header className="bccns-top-chrome">
-        <button
-          type="button"
-          className="bccns-wordmark"
-          id="bccnsWordmarkBtn"
-          onClick={() => {
-            if (appMode === "museum") {
-              returnToRotundaScene();
-            } else {
-              rotateToPortalAngle(0);
-            }
-          }}
-        >
-          <span className="bccns-wordmark-kicker">
-            CHERRY BROOK, NOVA SCOTIA · EST. {institution.established}
-          </span>
-          <span className="bccns-wordmark-title">{institution.name}</span>
-        </button>
+        <h1 className="bccns-wordmark">
+          <button
+            type="button"
+            id="bccnsWordmarkBtn"
+            onClick={() => {
+              if (appMode === "museum") {
+                returnToRotundaScene();
+              } else {
+                rotateToPortalAngle(0);
+              }
+            }}
+          >
+            BCCNS
+          </button>
+        </h1>
 
-        {appMode === "museum" && currentHeaderStation ? (
-          <div className="bccns-header-center">
-            <div className="bccns-header-year" id="headerYear">
-              {currentHeaderStation.display_year} ·{" "}
-              {currentHeaderStation.dc_publisher}
-            </div>
-            <h1 className="bccns-header-station-title" id="headerStationTitle">
-              {currentHeaderStation.dc_title}
-            </h1>
-          </div>
-        ) : (
-          <div className="bccns-header-center">
-            <div className="bccns-header-year">
-              FACING PORTAL · {activeHallPortal.years}
-            </div>
-            <h1 className="bccns-header-station-title">
-              {activeHallPortal.title}
-            </h1>
-          </div>
-        )}
+        <ArchiveAsk
+          view={askClue}
+          onClearView={() => {
+            if (appMode === "museum") {
+              askViewKeyRef.current = `room|${currentCollectionKey}|`;
+              setAskView({
+                scope: "room",
+                collectionKey: currentCollectionKey,
+                label: activeCollection.title,
+              });
+              return;
+            }
+            setHallClueHiddenFor(activeHallPortal.collectionKey);
+          }}
+        />
 
         <nav className="bccns-top-actions" aria-label="Archive navigation">
           {appMode === "museum" && currentHeaderStation && (
             <button
               type="button"
-              className="bccns-hairline-pill"
+              className="bccns-text-link"
               id="inspectCurrentStationBtn"
               onClick={() =>
                 openRecordPanel(currentHeaderStation, activeStationIndex)
               }
             >
-              READ STATION RECORD
+              Record
             </button>
           )}
           <button
             type="button"
-            className="bccns-hairline-pill"
+            className="bccns-text-link"
             id="centreMandateBtn"
             onClick={() => setCentreModalOpen(true)}
           >
-            THE CENTRE
+            The Centre
           </button>
-          <Link href="/catalog" className="bccns-hairline-pill" id="catalogLinkBtn">
-            SEARCH &amp; ASK ARCHIVE
-          </Link>
         </nav>
       </header>
 
