@@ -187,6 +187,32 @@ export function renderArchivalDocumentCanvas(
 }
 
 /**
+ * SOURCE OF TRUTH KEYWORDS: paintArchivalScan, contain fit, cover fit, natural scan color
+ * WHAT: Paints a loaded archival scan onto the station or arch canvas in its own colors.
+ * WHY: The typeset title and citation stay only until a media_url image arrives. The scan itself is the picture.
+ * WHERE: createStationScanTexture and createArchPreviewTexture.
+ */
+function paintArchivalScan(
+  ctx: CanvasRenderingContext2D,
+  img: HTMLImageElement,
+  fit: "contain" | "cover",
+): void {
+  const size = 640;
+  ctx.fillStyle = "#F3EEE6";
+  ctx.fillRect(0, 0, size, size);
+
+  const margin = fit === "contain" ? 16 : 0;
+  const avail = size - margin * 2;
+  const scale =
+    fit === "cover"
+      ? Math.max(avail / Math.max(1, img.width), avail / Math.max(1, img.height))
+      : Math.min(avail / Math.max(1, img.width), avail / Math.max(1, img.height));
+  const drawW = img.width * scale;
+  const drawH = img.height * scale;
+  ctx.drawImage(img, (size - drawW) * 0.5, (size - drawH) * 0.5, drawW, drawH);
+}
+
+/**
  * SOURCE OF TRUTH KEYWORDS: resolveArchivalMediaUrl, /api/image-proxy, CORS scan URL
  * WHAT: Routes external HTTP/HTTPS archival image URLs through the Next.js same-origin image proxy.
  * WHY: Allows WebGL CanvasTexture (which requires crossOrigin="anonymous") and modal <img> tags to load external holding institution scans without CORS failures.
@@ -242,60 +268,7 @@ export function createStationScanTexture(
     const img = new Image();
     img.crossOrigin = "anonymous";
     img.onload = () => {
-      // Warm paper mount (#F3EEE6) so the archival scan keeps its natural color
-      ctx.fillStyle = "#F3EEE6";
-      ctx.fillRect(0, 0, 640, 640);
-
-      // Subtle hairline outer border and top collection accent rule
-      ctx.strokeStyle = "rgba(22, 22, 22, 0.22)";
-      ctx.lineWidth = 1.5;
-      ctx.strokeRect(16, 16, 608, 608);
-
-      ctx.fillStyle = washHex;
-      ctx.fillRect(16, 16, 608, 4);
-
-      // Inner recessed mat for the scan
-      const pad = 28;
-      const availW = 640 - pad * 2;
-      const availH = 496;
-      ctx.fillStyle = "#EAE2D3";
-      ctx.fillRect(pad, pad, availW, availH);
-
-      const scale = Math.min(
-        (availW - 16) / Math.max(1, img.width),
-        (availH - 16) / Math.max(1, img.height),
-      );
-      const drawW = img.width * scale;
-      const drawH = img.height * scale;
-      const offsetX = (640 - drawW) * 0.5;
-      const offsetY = pad + (availH - drawH) * 0.5;
-
-      ctx.drawImage(img, offsetX, offsetY, drawW, drawH);
-
-      ctx.strokeStyle = "rgba(22, 22, 22, 0.14)";
-      ctx.lineWidth = 1;
-      ctx.strokeRect(offsetX, offsetY, drawW, drawH);
-
-      // Caption strip at bottom of paper mount
-      ctx.fillStyle = "#C4782A";
-      ctx.font = '600 12px "Inter", -apple-system, sans-serif';
-      ctx.textAlign = "left";
-      ctx.fillText(
-        `${station.display_year.toUpperCase()}  ·  ${station.dc_publisher.toUpperCase()}`.slice(
-          0,
-          64,
-        ),
-        28,
-        552,
-      );
-
-      ctx.fillStyle = "#161616";
-      ctx.font = '500 22px "Cormorant Garamond", Georgia, serif';
-      const titleLines = wrapCanvasLines(ctx, station.dc_title, 580, 2);
-      titleLines.forEach((line, lineIdx) => {
-        ctx.fillText(line, 28, 580 + lineIdx * 24);
-      });
-
+      paintArchivalScan(ctx, img, "contain");
       tex.needsUpdate = true;
     };
     img.onerror = () => {
@@ -332,36 +305,13 @@ export function createArchPreviewTexture(
     const img = new Image();
     img.crossOrigin = "anonymous";
     img.onload = () => {
-      ctx.fillStyle = "#EFE8DA";
-      ctx.fillRect(0, 0, 640, 640);
-
-      // Cover-fit with generous margin so horizontal parallax shift never exposes empty edges
-      const targetW = 560;
-      const targetH = 560;
-      const scale = Math.max(
-        targetW / Math.max(1, img.width),
-        targetH / Math.max(1, img.height),
-      );
-      const drawW = Math.min(600, img.width * scale);
-      const drawH = Math.min(600, img.height * scale);
-      const offsetX = (640 - drawW) * 0.5;
-      const offsetY = (640 - drawH) * 0.5;
-
-      ctx.drawImage(img, offsetX, offsetY, drawW, drawH);
-
-      // Subtle warm vignette around edges to blend naturally into the archway depth
-      const radGrad = ctx.createRadialGradient(320, 320, 170, 320, 320, 340);
-      radGrad.addColorStop(0, "rgba(243, 238, 230, 0.0)");
-      radGrad.addColorStop(1, "rgba(235, 227, 213, 0.42)");
-      ctx.fillStyle = radGrad;
-      ctx.fillRect(0, 0, 640, 640);
-
+      paintArchivalScan(ctx, img, "cover");
       tex.needsUpdate = true;
     };
-    img.src = proxiedUrl;
     img.onerror = () => {
       // Keep the already rendered title + citation canvas intact; image scan unavailable
     };
+    img.src = proxiedUrl;
   }
 
   return tex;
@@ -414,6 +364,55 @@ function createArchTitleBannerTexture(
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.anisotropy = 4;
   archTitleBannerTextureCache.set(cacheKey, tex);
+  return tex;
+}
+
+/**
+ * SOURCE OF TRUTH KEYWORDS: createArchSideLabelTexture, rotunda door label, collection subtitle, large serif
+ * WHAT: Renders a large left-aligned chapter title, years, and place summary for the rotunda.
+ * WHY: The home view reads the chapter beside each door, larger than the old banner above the arch.
+ * WHERE: buildProceduralHallScene.
+ */
+function createArchSideLabelTexture(
+  title: string,
+  years: string,
+  subtitle: string,
+  accentHex = "#C4782A",
+): THREE.CanvasTexture {
+  const canvas = document.createElement("canvas");
+  canvas.width = 1024;
+  canvas.height = 1280;
+  const ctx = canvas.getContext("2d");
+  if (ctx) {
+    ctx.clearRect(0, 0, 1024, 1280);
+    ctx.textAlign = "left";
+    ctx.textBaseline = "alphabetic";
+
+    ctx.fillStyle = accentHex;
+    ctx.font = '600 72px "Inter", -apple-system, sans-serif';
+    ctx.fillText(years.toUpperCase(), 36, 110);
+
+    ctx.fillStyle = accentHex;
+    ctx.fillRect(36, 146, 340, 7);
+
+    ctx.fillStyle = "#161616";
+    ctx.font = '600 92px "Cormorant Garamond", Georgia, serif';
+    const titleLines = wrapCanvasLines(ctx, title, 960, 4);
+    titleLines.forEach((line, index) => {
+      ctx.fillText(line, 36, 260 + index * 104);
+    });
+
+    const subtitleTop = 300 + titleLines.length * 104;
+    ctx.fillStyle = "rgba(22, 22, 22, 0.82)";
+    ctx.font = '500 64px "Cormorant Garamond", Georgia, serif';
+    const subtitleLines = wrapCanvasLines(ctx, subtitle, 960, 3);
+    subtitleLines.forEach((line, index) => {
+      ctx.fillText(line, 36, subtitleTop + index * 78);
+    });
+  }
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
   return tex;
 }
 
@@ -498,16 +497,34 @@ function createWallSegmentGeometry(halfW = 5.45): THREE.ExtrudeGeometry {
 
   const geom = new THREE.ExtrudeGeometry(wallShape, {
     depth: 0.48,
-    bevelEnabled: true,
-    bevelThickness: 0.12,
-    bevelSize: 0.12,
-    bevelSegments: 3,
-    curveSegments: 24,
+    bevelEnabled: false,
+    curveSegments: 32,
   });
   geom.rotateY(-Math.PI / 2);
   geom.translate(0.24, 0, 0);
   geom.computeVertexNormals();
   return geom;
+}
+
+/**
+ * SOURCE OF TRUTH KEYWORDS: curveWallOntoCircle, circular rotunda wall, arc segment
+ * WHAT: Bends a flat wall segment so its length lies on a circle of the given radius.
+ * WHY: Flat panels meet at corners. Local +X points inward, so arc length in Z becomes a circular outer wall.
+ * WHERE: buildProceduralHallScene.
+ */
+function curveWallOntoCircle(geom: THREE.BufferGeometry, radius: number): void {
+  const pos = geom.attributes.position;
+  if (!(pos instanceof THREE.BufferAttribute)) return;
+  for (let i = 0; i < pos.count; i++) {
+    const inward = pos.getX(i);
+    const arc = pos.getZ(i);
+    const beta = arc / radius;
+    const radial = radius - inward;
+    pos.setX(i, radius - radial * Math.cos(beta));
+    pos.setZ(i, radial * Math.sin(beta));
+  }
+  pos.needsUpdate = true;
+  geom.computeVertexNormals();
 }
 
 function createArchBandGeometry(
@@ -569,6 +586,40 @@ export function resetGeometryCache(): void {
     tex.dispose();
   }
   archTitleBannerTextureCache.clear();
+}
+
+/**
+ * SOURCE OF TRUTH KEYWORDS: seatRotundaArchFrame, deeper curved archivolt, flush rounded wall
+ * WHAT: Thickens a rotunda arch frame and bends it onto the circular wall.
+ * WHY: A flat frame leaves a gap against the curved plaster. A deeper rim follows the wall and stays flush.
+ * WHERE: buildProceduralHallScene.
+ */
+function seatRotundaArchFrame(
+  group: THREE.Group,
+  radius: number,
+  depthScale: number,
+  inwardOffset: number,
+): void {
+  group.traverse((child) => {
+    const mesh = child as THREE.Mesh;
+    if (!mesh.isMesh) return;
+    const geom = mesh.geometry.clone();
+    const pos = geom.attributes.position;
+    if (pos instanceof THREE.BufferAttribute) {
+      for (let i = 0; i < pos.count; i++) {
+        pos.setX(i, pos.getX(i) * depthScale + inwardOffset);
+      }
+      pos.needsUpdate = true;
+    }
+    curveWallOntoCircle(geom, radius);
+    mesh.geometry = geom;
+    const material = mesh.material;
+    if (material instanceof THREE.Material) {
+      material.polygonOffset = true;
+      material.polygonOffsetFactor = -2;
+      material.polygonOffsetUnits = -2;
+    }
+  });
 }
 
 /**
@@ -682,10 +733,6 @@ function createFloorGeometry(): THREE.CircleGeometry {
   return geom;
 }
 
-function createBannerQuadGeometry(): THREE.PlaneGeometry {
-  return new THREE.PlaneGeometry(4.6, 1.15);
-}
-
 /**
  * SOURCE OF TRUTH KEYWORDS: buildProceduralHallScene, 6 portals, warm plaster rotunda
  * WHAT: Builds the 6-portal warm-plaster BCCNS rotunda hall in the Centre's own order (60° spacing).
@@ -729,16 +776,6 @@ export function buildProceduralHallScene(
   platformMesh.quaternion.copy(rot20);
   root.add(platformMesh);
 
-  // Subtle copper-ochre ring inlaid on the central dais
-  const ringGeom = new THREE.RingGeometry(3.92, 4.01, 72);
-  ringGeom.rotateX(-Math.PI / 2);
-  const ringMesh = new THREE.Mesh(
-    ringGeom,
-    new THREE.MeshBasicMaterial({ color: 0xc4782a, side: THREE.DoubleSide }),
-  );
-  ringMesh.position.set(0, 0.043, 0);
-  root.add(ringMesh);
-
   const floorMesh = new THREE.Mesh(createFloorGeometry(), floorMat);
   floorMesh.name = "FloorHall";
   floorMesh.quaternion.copy(rot20);
@@ -750,16 +787,16 @@ export function buildProceduralHallScene(
   reflectorAnchor.quaternion.copy(rot20);
   root.add(reflectorAnchor);
 
-  const wallGeom = createWallSegmentGeometry(5.65);
-  const bannerGeom = createBannerQuadGeometry();
+  const wallRadius = 9.85;
+  const previewRadius = 10.12;
+
+  // Each portal owns 60° of the circle, plus a small overlap so the seams stay closed.
+  const wallSectorHalf = wallRadius * (Math.PI / 6) + 0.04;
+  const wallGeom = createWallSegmentGeometry(wallSectorHalf);
+  curveWallOntoCircle(wallGeom, wallRadius);
   const previewGeom = new THREE.PlaneGeometry(3.64, 5.56, 20, 20);
   // Translate by half height so bottom sits at y = 0.0, matching createPortalEnergyField 1:1
   previewGeom.translate(0, 5.56 * 0.5, 0);
-
-  const wallRadius = 9.85;
-  const glowRadius = 9.82;
-  const textRadius = 9.48;
-  const previewRadius = 10.12;
 
   portals.forEach((cfg, idx) => {
     const theta = THREE.MathUtils.degToRad(cfg.angleDeg);
@@ -773,6 +810,28 @@ export function buildProceduralHallScene(
     wallMesh.rotation.set(0, wallRotY, 0);
     root.add(wallMesh);
 
+    const sideLabelGeom = new THREE.PlaneGeometry(3.15, 3.9, 18, 1);
+    // Face the centre (local +X on this wall is inward), then sit the card on the curve.
+    sideLabelGeom.rotateY(Math.PI / 2);
+    sideLabelGeom.translate(0.52, 2.72, -4.55);
+    curveWallOntoCircle(sideLabelGeom, wallRadius);
+    const textMesh = new THREE.Mesh(
+      sideLabelGeom,
+      new THREE.MeshBasicMaterial({
+        map: createArchSideLabelTexture(
+          cfg.title,
+          cfg.years,
+          cfg.subtitle,
+          cfg.washHex,
+        ),
+        transparent: true,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+      }),
+    );
+    textMesh.name = cfg.textNode;
+    wallMesh.add(textMesh);
+
     const portalAnchor = new THREE.Object3D();
     portalAnchor.name = cfg.portalNode;
     portalAnchor.position.set(dirX * wallRadius, 0, dirZ * wallRadius);
@@ -781,24 +840,52 @@ export function buildProceduralHallScene(
     root.add(portalAnchor);
 
     const glowGroup = createGreekArchwayMoldingGroup(cfg.washHex);
+    const revealMat = new THREE.MeshStandardMaterial({
+      color: 0x2c261f,
+      roughness: 0.86,
+      metalness: 0.02,
+      emissive: 0x1a1612,
+      emissiveIntensity: 0.18,
+    });
+    const filletMat = new THREE.MeshStandardMaterial({
+      color: cfg.washHex,
+      roughness: 0.42,
+      metalness: 0.12,
+      emissive: cfg.washHex,
+      emissiveIntensity: 0.08,
+    });
+    const stepMats = [
+      new THREE.MeshStandardMaterial({
+        color: 0xb3a794,
+        roughness: 0.62,
+        metalness: 0.05,
+      }),
+      new THREE.MeshStandardMaterial({
+        color: 0xd2c8b8,
+        roughness: 0.5,
+        metalness: 0.05,
+      }),
+      new THREE.MeshStandardMaterial({
+        color: 0xe8e0d3,
+        roughness: 0.46,
+        metalness: 0.04,
+      }),
+    ];
+    glowGroup.children.forEach((child, step) => {
+      const mesh = child as THREE.Mesh;
+      if (!mesh.isMesh || step > 2) return;
+      mesh.material = stepMats[step];
+    });
+    // Dark recess so the scan sits inside the opening, then a thin ochre fillet on the inner edge.
+    glowGroup.add(
+      new THREE.Mesh(createArchBandGeometry(1.7, 1.78, 3.75, 0.22), revealMat),
+      new THREE.Mesh(createArchBandGeometry(1.78, 1.84, 3.75, 0.28), filletMat),
+    );
+    seatRotundaArchFrame(glowGroup, wallRadius, 1.12, 0.28);
     glowGroup.name = cfg.glowNode;
-    glowGroup.position.set(dirX * glowRadius, 0, dirZ * glowRadius);
+    glowGroup.position.set(dirX * wallRadius, 0, dirZ * wallRadius);
     glowGroup.rotation.set(0, wallRotY, 0);
     root.add(glowGroup);
-
-    const textMesh = new THREE.Mesh(
-      bannerGeom,
-      new THREE.MeshBasicMaterial({
-        map: createArchTitleBannerTexture(cfg.title, cfg.years, cfg.washHex),
-        transparent: true,
-        side: THREE.DoubleSide,
-      }),
-    );
-    textMesh.name = cfg.textNode;
-    textMesh.position.set(dirX * textRadius, 6.26, dirZ * textRadius);
-    // Rotate by theta so the PlaneGeometry (+Z front normal) faces inward toward the camera unflipped
-    textMesh.rotation.set(0, theta, 0);
-    root.add(textMesh);
 
     const previewMesh = new THREE.Mesh(
       previewGeom,
@@ -814,7 +901,7 @@ export function buildProceduralHallScene(
 
   const viewNode = new THREE.Object3D();
   viewNode.name = "View";
-  viewNode.position.set(0, 2.6, 0);
+  viewNode.position.set(0, 3.15, 0);
 
   const camera = new THREE.PerspectiveCamera(
     THREE.MathUtils.radToDeg(0.5483113556160755),
@@ -900,57 +987,6 @@ function createTwinArchEndWallGeometry(): THREE.ExtrudeGeometry {
   return geom;
 }
 
-/**
- * SOURCE OF TRUTH KEYWORDS: createMuseumWallPlaqueTexture, station curatorial plaque, wall label
- * WHAT: Renders a dark-ink and gold museum curatorial wall plaque mounted beside each framed archival station.
- * WHY: Grounds each hanging picture frame in an authentic museum gallery wall installation.
- * WHERE: buildMuseumRoomScene.
- */
-function createMuseumWallPlaqueTexture(
-  station: ArchiveStation,
-  index: number,
-  washHex: string,
-): THREE.CanvasTexture {
-  const canvas = document.createElement("canvas");
-  canvas.width = 512;
-  canvas.height = 192;
-  const ctx = canvas.getContext("2d");
-  if (ctx) {
-    ctx.fillStyle = "#1E1A17";
-    ctx.fillRect(0, 0, 512, 192);
-
-    ctx.strokeStyle = "#C4782A";
-    ctx.lineWidth = 2;
-    ctx.strokeRect(8, 8, 496, 176);
-
-    ctx.fillStyle = washHex;
-    ctx.fillRect(24, 24, 52, 3);
-
-    ctx.fillStyle = "#C9892D";
-    ctx.font = '600 13px "Inter", -apple-system, sans-serif';
-    ctx.textAlign = "left";
-    ctx.fillText(
-      `STATION 0${index + 1}  ·  ${station.display_year.toUpperCase()}`,
-      24,
-      48,
-    );
-
-    ctx.fillStyle = "#F3EEE6";
-    ctx.font = '500 22px "Cormorant Garamond", Georgia, serif';
-    const lines = wrapCanvasLines(ctx, station.dc_title, 460, 2);
-    lines.forEach((line, idx) => {
-      ctx.fillText(line, 24, 82 + idx * 26);
-    });
-
-    ctx.fillStyle = "rgba(243, 238, 230, 0.72)";
-    ctx.font = '500 12px "Inter", -apple-system, sans-serif';
-    ctx.fillText(station.dc_publisher.toUpperCase().slice(0, 48), 24, 158);
-  }
-  const tex = new THREE.CanvasTexture(canvas);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  return tex;
-}
-
 export interface BuildMuseumRoomOptions {
   collection: ArchiveCollection;
   allCollections: ArchiveCollection[];
@@ -964,7 +1000,7 @@ export interface BuildMuseumRoomOptions {
 /**
  * SOURCE OF TRUTH KEYWORDS: buildMuseumRoomScene, museum picture frames, gallery walls, end of hallway arches
  * WHAT: Builds the 3D archival exhibition gallery for any of the 6 BCCNS historical chapters.
- * WHY: Replaces open side arches with architectural museum gallery walls and hanging 3D picture frames with overhead picture lights, plaques, and twin end-of-hallway chapter portals.
+ * WHY: Replaces open side arches with architectural museum gallery walls and hanging 3D picture frames with overhead picture lights and twin end-of-hallway chapter portals.
  * WHERE: transitionToCollectionRoom in bccns-archive-experience.tsx.
  */
 export async function buildMuseumRoomScene({
@@ -1276,7 +1312,6 @@ export async function buildMuseumRoomScene({
   const hangingRodGeom = new THREE.CylinderGeometry(0.012, 0.012, 2.1, 8);
   const pictureLightBarGeom = new THREE.BoxGeometry(1.35, 0.055, 0.24);
   const pictureLightArmGeom = new THREE.BoxGeometry(0.06, 0.06, 0.36);
-  const plaqueGeom = new THREE.PlaneGeometry(0.96, 0.36);
 
   const shadowGeom = new THREE.PlaneGeometry(3.1, 1.35);
   shadowGeom.rotateX(-Math.PI / 2);
@@ -1391,14 +1426,6 @@ export async function buildMuseumRoomScene({
     const lightArm = new THREE.Mesh(pictureLightArmGeom, plinthMat);
     lightArm.position.set(0, 1.54, 0.0);
     frameGroup.add(lightArm);
-
-    // Museum curatorial wall plaque mounted below the frame
-    const plaqueMat = new THREE.MeshBasicMaterial({
-      map: createMuseumWallPlaqueTexture(station, idx, collection.washHex),
-    });
-    const plaqueMesh = new THREE.Mesh(plaqueGeom, plaqueMat);
-    plaqueMesh.position.set(0, -1.72, 0.02);
-    frameGroup.add(plaqueMesh);
 
     root.add(frameGroup);
 

@@ -339,9 +339,9 @@ export function BccnsArchiveExperience({
     roomProgress: 0,
     activeStationIndex: 0,
     roomLookRotX: 0,
-    roomLookRotY: -Math.PI / 2,
+    roomLookRotY: 0,
     roomTargetLookRotX: 0,
-    roomTargetLookRotY: -Math.PI / 2,
+    roomTargetLookRotY: 0,
     hoveredPortalCfg: null,
     hoveredPicMesh: null,
     hoveredRoomPortalMesh: null,
@@ -514,8 +514,8 @@ export function BccnsArchiveExperience({
           if (mesh.isMesh) {
             const previewCtrl = archiveEffects.applyPortalPreviewShader(mesh, {
               portalAngleDeg: cfg.angleDeg,
-              shiftMultiplier: 0.004,
-              maxShift: 0.18,
+              shiftMultiplier: 0.002,
+              maxShift: 0.06,
               texture:
                 st.textures?.previewsByCollection[cfg.collectionKey] || null,
             });
@@ -802,9 +802,9 @@ export function BccnsArchiveExperience({
     st.roomProgress = 0;
     st.activeStationIndex = 0;
     st.roomLookRotX = 0;
-    st.roomLookRotY = -Math.PI / 2;
+    st.roomLookRotY = 0;
     st.roomTargetLookRotX = 0;
-    st.roomTargetLookRotY = -Math.PI / 2;
+    st.roomTargetLookRotY = 0;
 
     // If deep-linked to a specific record, dolly directly to that station and open its panel
     if (options?.initialRecordId) {
@@ -831,7 +831,9 @@ export function BccnsArchiveExperience({
     }
 
     st.viewNode.position.set(st.roomCurrentX, 1.8, 0);
-    st.viewNode.rotation.set(st.roomLookRotX, st.roomLookRotY, 0);
+    st.viewNode.rotation.set(0, -Math.PI / 2, 0);
+    st.activeCamera.rotation.order = "YXZ";
+    st.activeCamera.rotation.set(0, 0, 0);
     archiveEffects.updateRoomCameraProjection(
       st.activeCamera,
       window.innerWidth,
@@ -1034,6 +1036,13 @@ export function BccnsArchiveExperience({
     let prevPointerY = 0;
     const pointerNDC = new THREE.Vector2();
     const raycaster = new THREE.Raycaster();
+    // Screen-edge glance. Yaw is the wider motion; pitch stays a small nod.
+    const lookYawLimit = 0.16;
+    const lookPitchLimit = 0.07;
+    let hallYaw = 0;
+    let hallTargetYaw = 0;
+    let hallPitch = 0;
+    let hallTargetPitch = 0;
 
     const onWheel = (e: WheelEvent) => {
       if (!st.arrivalHidden || st.modalBlocking) return;
@@ -1139,20 +1148,29 @@ export function BccnsArchiveExperience({
         setPortalPromptText(
           cfg ? `ENTER COLLECTION: ${cfg.title} (${cfg.years})` : null,
         );
-      } else if (st.appMode === "museum" && st.currentRoomBuild) {
-        const rotationFactor = 0.10;
-        st.roomTargetLookRotX = THREE.MathUtils.clamp(
-          pointerNDC.y * rotationFactor,
-          -0.06,
-          0.06,
+
+        hallTargetYaw = THREE.MathUtils.clamp(
+          -pointerNDC.x * lookYawLimit,
+          -lookYawLimit,
+          lookYawLimit,
         );
-        st.roomTargetLookRotY =
-          -Math.PI / 2 +
-          THREE.MathUtils.clamp(
-            -pointerNDC.x * rotationFactor * 2.4,
-            -1.2,
-            1.2,
-          );
+        hallTargetPitch = THREE.MathUtils.clamp(
+          pointerNDC.y * lookPitchLimit,
+          -lookPitchLimit,
+          lookPitchLimit,
+        );
+      } else if (st.appMode === "museum" && st.currentRoomBuild) {
+        // Local camera yaw/pitch. The rig heading stays fixed so the horizon does not bank.
+        st.roomTargetLookRotY = THREE.MathUtils.clamp(
+          -pointerNDC.x * lookYawLimit,
+          -lookYawLimit,
+          lookYawLimit,
+        );
+        st.roomTargetLookRotX = THREE.MathUtils.clamp(
+          pointerNDC.y * lookPitchLimit,
+          -lookPitchLimit,
+          lookPitchLimit,
+        );
 
         if (isDragging) {
           const dx = e.clientX - prevPointerX;
@@ -1184,34 +1202,6 @@ export function BccnsArchiveExperience({
         st.stationShaderControllers.forEach((ctrl) => {
           ctrl.setHovered(ctrl.mesh === st.hoveredPicMesh);
         });
-
-        // When hovering a picture frame, smoothly focus the camera toward that frame
-        if (st.hoveredPicMesh) {
-          const camWorldX = st.roomCurrentX - 2.0;
-          const dx = Math.max(1.2, st.hoveredPicMesh.position.x - camWorldX);
-          const dz = st.hoveredPicMesh.position.z;
-          const focusYawOffset = THREE.MathUtils.clamp(
-            -Math.atan2(dz, dx) * 0.55,
-            -0.58,
-            0.58,
-          );
-          st.roomTargetLookRotY =
-            -Math.PI / 2 +
-            THREE.MathUtils.lerp(
-              THREE.MathUtils.clamp(
-                -pointerNDC.x * rotationFactor * 2.1,
-                -0.92,
-                0.92,
-              ),
-              focusYawOffset,
-              0.68,
-            );
-          st.roomTargetLookRotX = THREE.MathUtils.clamp(
-            0.035 + pointerNDC.y * 0.04,
-            -0.03,
-            0.06,
-          );
-        }
 
         const portalHits = raycaster.intersectObjects(
           st.roomPortalMeshes,
@@ -1369,9 +1359,17 @@ export function BccnsArchiveExperience({
             st.rotationSpeed,
           );
           st.currentRotY += step;
-          st.viewNode.rotation.y = st.currentRotY;
         } else {
           st.rotationSpeed = 0;
+        }
+        hallYaw += (hallTargetYaw - hallYaw) * 0.12;
+        hallPitch += (hallTargetPitch - hallPitch) * 0.12;
+        st.viewNode.rotation.set(0, st.currentRotY, 0);
+        if (st.activeCamera) {
+          st.activeCamera.rotation.order = "YXZ";
+          st.activeCamera.rotation.y = hallYaw;
+          st.activeCamera.rotation.x = hallPitch;
+          st.activeCamera.rotation.z = 0;
         }
 
         const cameraDeg =
@@ -1399,9 +1397,15 @@ export function BccnsArchiveExperience({
         st.roomCurrentX += (st.roomTargetX - st.roomCurrentX) * 0.085;
         st.viewNode.position.x = st.roomCurrentX;
 
-        st.roomLookRotX += (st.roomTargetLookRotX - st.roomLookRotX) * 0.1;
-        st.roomLookRotY += (st.roomTargetLookRotY - st.roomLookRotY) * 0.1;
-        st.viewNode.rotation.set(st.roomLookRotX, st.roomLookRotY, 0);
+        st.roomLookRotX += (st.roomTargetLookRotX - st.roomLookRotX) * 0.12;
+        st.roomLookRotY += (st.roomTargetLookRotY - st.roomLookRotY) * 0.12;
+        st.viewNode.rotation.set(0, -Math.PI / 2, 0);
+        if (st.activeCamera) {
+          st.activeCamera.rotation.order = "YXZ";
+          st.activeCamera.rotation.y = st.roomLookRotY;
+          st.activeCamera.rotation.x = st.roomLookRotX;
+          st.activeCamera.rotation.z = 0;
+        }
 
         const span = Math.max(0.001, st.roomMaxX - st.roomMinX);
         const pct = Math.max(

@@ -646,7 +646,7 @@ export function applyPortalPreviewShader(
       void main() {
         vUv = uv;
         vec3 pos = position;
-        pos.x += sin(uv.y * 5.0 + uTime * 1.1) * (0.075 + 0.045 * uHover);
+        pos.x += sin(uv.y * 5.0 + uTime * 1.1) * (0.02 + 0.03 * uHover);
         vec4 mvPosition = modelViewMatrix * vec4(pos, 1.0);
         gl_Position = projectionMatrix * mvPosition;
         #ifdef USE_FOG
@@ -679,19 +679,31 @@ export function applyPortalPreviewShader(
           discard;
         }
 
-        float zoom = 1.0 - 0.065 * uHover;
-        vec2 centered = (vUv - 0.5) * zoom + 0.5;
-        vec2 shiftedUV = centered;
-        shiftedUV.x += uUvShift;
-        shiftedUV = clamp(shiftedUV, 0.01, 0.99);
+        float zoom = 1.0 - 0.04 * uHover;
+        vec2 centered = (vUv - 0.5) * zoom;
+        // Cover the tall arch with the square scan. Crop the sides instead of stretching the height.
+        centered.x *= 3.64 / 5.56;
+        vec2 fitted = centered + 0.5;
+        float edgeFade = smoothstep(0.0, 0.22, distToEdge);
+        vec2 shiftedUV = fitted;
+        shiftedUV.x += uUvShift * edgeFade * 0.35;
+        shiftedUV = clamp(shiftedUV, 0.0, 1.0);
 
         vec2 distortedUV = shiftedUV;
-        float waveBoost = 1.0 + 1.45 * uHover;
-        distortedUV.x += sin(vUv.y * 30.0 + uTime * 2.0) * 0.003 * waveBoost;
-        distortedUV.y += cos(vUv.x * 8.0 + uTime * 0.6) * 0.005 * waveBoost;
-        distortedUV = clamp(distortedUV, 0.005, 0.995);
+        float waveBoost = 1.0 + 0.6 * uHover;
+        distortedUV.x += sin(vUv.y * 18.0 + uTime * 1.4) * 0.0012 * waveBoost * edgeFade;
+        distortedUV.y += cos(vUv.x * 8.0 + uTime * 0.6) * 0.0016 * waveBoost * edgeFade;
+        distortedUV = clamp(distortedUV, 0.0, 1.0);
 
-        vec4 texColor = texture2D(uTexture, distortedUV);
+        float rim = smoothstep(0.16, 0.0, distToEdge);
+        vec2 blur = vec2(0.01, 0.008) * rim;
+        vec4 texColor = (
+          texture2D(uTexture, distortedUV) * 2.0
+          + texture2D(uTexture, distortedUV + vec2(blur.x, 0.0))
+          + texture2D(uTexture, distortedUV - vec2(blur.x, 0.0))
+          + texture2D(uTexture, distortedUV + vec2(0.0, blur.y))
+          + texture2D(uTexture, distortedUV - vec2(0.0, blur.y))
+        ) / 6.0;
         // Subtle inner arch shadow + warm lighting boost on hover
         float innerVignette = smoothstep(0.0, 0.14, distToEdge);
         vec3 litColor = texColor.rgb * (0.94 + 0.12 * uHover) * (0.82 + 0.18 * innerVignette);
@@ -703,6 +715,11 @@ export function applyPortalPreviewShader(
     side: THREE.DoubleSide,
     fog: true,
   });
+
+  // merge() clones the canvas texture. Later scan uploads only bump the original texture version.
+  if (map) {
+    material.uniforms.uTexture.value = map;
+  }
 
   previewMesh.material = material;
 
@@ -814,6 +831,11 @@ export function applyStationPictureShader(
     side: THREE.DoubleSide,
     fog: true,
   });
+
+  // merge() clones the canvas texture. Later scan uploads only bump the original texture version.
+  if (map) {
+    material.uniforms.uTexture.value = map;
+  }
 
   picMesh.material = material;
 
