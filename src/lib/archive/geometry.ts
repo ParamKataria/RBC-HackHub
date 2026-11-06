@@ -209,11 +209,23 @@ export function resolveArchivalMediaUrl(mediaUrl: string | null | undefined): st
  * WHY: "Paper, ink, newsprint, and maps keep their own color. Do not recolor a scan to match the palette. Images that fail show the title and citation, not a broken frame."
  * WHERE: buildMuseumRoomScene and loadHallTextures.
  */
+
+// Per-station scan texture cache keyed by station id (+ wash hex so a station
+// rendered under a different collection's accent keeps its own canvas). Reusing
+// the same CanvasTexture across the rotunda preview and the gallery picture
+// frame means one WebGL texture, one canvas, and one image fetch per station.
+const stationScanTextureCache = new Map<string, THREE.CanvasTexture>();
+const archTitleBannerTextureCache = new Map<string, THREE.CanvasTexture>();
+
 export function createStationScanTexture(
   station: ArchiveStation,
   index: number,
   washHex = "#C4782A",
 ): THREE.CanvasTexture {
+  const cacheKey = `${station.id}|${washHex}`;
+  const cached = stationScanTextureCache.get(cacheKey);
+  if (cached) return cached;
+
   const canvas = renderArchivalDocumentCanvas(station, index, washHex);
   const ctx = canvas.getContext("2d");
   const tex = new THREE.CanvasTexture(canvas);
@@ -295,6 +307,7 @@ export function createStationScanTexture(
     img.src = proxiedUrl;
   }
 
+  stationScanTextureCache.set(cacheKey, tex);
   return tex;
 }
 
@@ -365,6 +378,10 @@ function createArchTitleBannerTexture(
   years: string,
   accentHex = "#C4782A",
 ): THREE.CanvasTexture {
+  const cacheKey = `${title}|${years}|${accentHex}`;
+  const cached = archTitleBannerTextureCache.get(cacheKey);
+  if (cached) return cached;
+
   const canvas = document.createElement("canvas");
   canvas.width = 1024;
   canvas.height = 256;
@@ -396,6 +413,7 @@ function createArchTitleBannerTexture(
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.anisotropy = 4;
+  archTitleBannerTextureCache.set(cacheKey, tex);
   return tex;
 }
 
@@ -484,7 +502,7 @@ function createWallSegmentGeometry(halfW = 5.45): THREE.ExtrudeGeometry {
     bevelThickness: 0.12,
     bevelSize: 0.12,
     bevelSegments: 3,
-    curveSegments: 32,
+    curveSegments: 24,
   });
   geom.rotateY(-Math.PI / 2);
   geom.translate(0.24, 0, 0);
@@ -515,7 +533,7 @@ function createArchBandGeometry(
     bevelThickness: 0.10,
     bevelSize: 0.10,
     bevelSegments: 3,
-    curveSegments: 40,
+    curveSegments: 30,
   });
   geom.rotateY(-Math.PI / 2);
   geom.translate(depth / 2, 0, 0);
@@ -538,6 +556,19 @@ export function resetGeometryCache(): void {
   cachedInnerArchBandGeom = null;
   cachedMidArchBandGeom = null;
   cachedOuterArchBandGeom = null;
+
+  // Dispose cached CanvasTextures before clearing so their WebGL textures are
+  // released and no disposed (still-truthy) texture references leak into the
+  // next scene build.
+  for (const tex of stationScanTextureCache.values()) {
+    tex.dispose();
+  }
+  stationScanTextureCache.clear();
+
+  for (const tex of archTitleBannerTextureCache.values()) {
+    tex.dispose();
+  }
+  archTitleBannerTextureCache.clear();
 }
 
 /**

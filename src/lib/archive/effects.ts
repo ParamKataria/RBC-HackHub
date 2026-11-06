@@ -820,6 +820,9 @@ export function applyStationPictureShader(
   return {
     mesh: picMesh,
     material,
+    setTexture(tex: THREE.Texture | null) {
+      material.uniforms.uTexture.value = tex;
+    },
     setHovered(hovered: boolean) {
       isHovered = hovered;
     },

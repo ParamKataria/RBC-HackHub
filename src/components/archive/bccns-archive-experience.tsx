@@ -4,6 +4,7 @@ import Link from "next/link";
 import React, { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+import { Reflector } from "three/examples/jsm/objects/Reflector.js";
 import { archiveEffects, archiveGeometry } from "@/src/lib/archive";
 import type {
   AppMode,
@@ -122,6 +123,7 @@ function disposeEngineResources(st: {
   previewControllers: any[];
   stationShaderControllers: any[];
   roomFaderController: { mesh: THREE.Mesh } | null;
+  floorReflectors: Reflector[];
   interactivePortalMeshes: THREE.Mesh[];
   roomPortalMeshes: THREE.Mesh[];
   textures: { noise: THREE.Texture | null; platform: THREE.Texture | null; floor: THREE.Texture | null; rotundaPreview: THREE.Texture | null; previewsByCollection: Partial<Record<string, THREE.Texture | null>> } | null;
@@ -184,6 +186,20 @@ function disposeEngineResources(st: {
   }
   st.roomFaderController = null;
 
+  // Floor reflectors (WebGLRenderTarget — must be disposed to avoid GPU memory leaks)
+  if (!st.floorReflectors) st.floorReflectors = [];
+  st.floorReflectors.forEach((r) => {
+    const target = r.getRenderTarget();
+    if (target) target.dispose();
+    const mat = r.material;
+    if (Array.isArray(mat)) {
+      mat.forEach((m) => m.dispose());
+    } else if (mat) {
+      mat.dispose();
+    }
+  });
+  st.floorReflectors = [];
+
   // Light controllers (PointLights — no GPU buffers to free, just clear refs)
   st.lightControllers = [];
 
@@ -237,6 +253,8 @@ export function BccnsArchiveExperience({
   // --- DOM & Mutable Engine Refs ---
   const mountRef = useRef<HTMLDivElement | null>(null);
   const scrubberTrackRef = useRef<HTMLDivElement | null>(null);
+  const scrubberLineRef = useRef<HTMLDivElement | null>(null);
+  const scrubberHandleRef = useRef<HTMLDivElement | null>(null);
   const cursorRef = useRef<HTMLDivElement | null>(null);
 
   const engineRef = useRef<{
@@ -265,6 +283,7 @@ export function BccnsArchiveExperience({
     interactivePortalMeshes: THREE.Mesh[];
     roomPortalMeshes: THREE.Mesh[];
     roomFaderController: CameraFaderController | null;
+    floorReflectors: Reflector[];
     currentRotY: number;
     targetRotY: number;
     rotationSpeed: number;
@@ -308,6 +327,7 @@ export function BccnsArchiveExperience({
     interactivePortalMeshes: [],
     roomPortalMeshes: [],
     roomFaderController: null,
+    floorReflectors: [],
     currentRotY: 0,
     targetRotY: 0,
     rotationSpeed: 0,
@@ -448,13 +468,16 @@ export function BccnsArchiveExperience({
 
     const reflectorAnchor = hallRoot.getObjectByName("reflector");
     if (reflectorAnchor) {
-      archiveEffects.createFloorReflector(reflectorAnchor, {
-        width: 20,
-        height: 20,
-        opacity: 0.07,
-        blur: 0,
-        matteColor: 0xf3eee6,
-      });
+      if (!st.floorReflectors) st.floorReflectors = [];
+      st.floorReflectors.push(
+        archiveEffects.createFloorReflector(reflectorAnchor, {
+          width: 20,
+          height: 20,
+          opacity: 0.07,
+          blur: 0,
+          matteColor: 0xf3eee6,
+        }),
+      );
     }
 
     for (const cfg of archiveEffects.PORTAL_CONFIGS) {
@@ -640,18 +663,34 @@ export function BccnsArchiveExperience({
     st.scene.add(roomBuild.root);
     setActiveRoomConfig(roomBuild.roomConfig);
 
-    archiveEffects.createFloorReflector(roomBuild.reflector01, {
-      width: 26,
-      height: 19,
-      opacity: 0.055,
-      matteColor: 0xf3eee6,
+    // Dispose reflectors from previous scene so they don't leak GPU memory
+    if (!st.floorReflectors) st.floorReflectors = [];
+    st.floorReflectors.forEach((r) => {
+      const target = r.getRenderTarget();
+      if (target) target.dispose();
+      const mat = r.material;
+      if (Array.isArray(mat)) {
+        mat.forEach((m) => m.dispose());
+      } else if (mat) {
+        mat.dispose();
+      }
     });
-    archiveEffects.createFloorReflector(roomBuild.reflector02, {
-      width: 26,
-      height: 19,
-      opacity: 0.055,
-      matteColor: 0xf3eee6,
-    });
+    st.floorReflectors = [];
+
+    st.floorReflectors.push(
+      archiveEffects.createFloorReflector(roomBuild.reflector01, {
+        width: 26,
+        height: 19,
+        opacity: 0.055,
+        matteColor: 0xf3eee6,
+      }),
+      archiveEffects.createFloorReflector(roomBuild.reflector02, {
+        width: 26,
+        height: 19,
+        opacity: 0.055,
+        matteColor: 0xf3eee6,
+      }),
+    );
 
     st.energyControllers = [];
     st.lightControllers = [];
@@ -746,7 +785,11 @@ export function BccnsArchiveExperience({
 
     // Interactive hover shader on every framed archival station image on the gallery walls
     for (const picMesh of roomBuild.pictureMeshes) {
+      const mat = picMesh.material;
+      const first = Array.isArray(mat) ? mat[0] : mat;
+      const tex = (first as THREE.MeshBasicMaterial | undefined)?.map ?? null;
       const picShaderCtrl = archiveEffects.applyStationPictureShader(picMesh, {
+        texture: tex,
         accentColor: targetCollection.washHex,
       });
       st.stationShaderControllers.push(picShaderCtrl);
@@ -1097,18 +1140,18 @@ export function BccnsArchiveExperience({
           cfg ? `ENTER COLLECTION: ${cfg.title} (${cfg.years})` : null,
         );
       } else if (st.appMode === "museum" && st.currentRoomBuild) {
-        const rotationFactor = 0.08;
+        const rotationFactor = 0.10;
         st.roomTargetLookRotX = THREE.MathUtils.clamp(
           pointerNDC.y * rotationFactor,
-          -0.02,
-          0.02,
+          -0.06,
+          0.06,
         );
         st.roomTargetLookRotY =
           -Math.PI / 2 +
           THREE.MathUtils.clamp(
-            -pointerNDC.x * rotationFactor * 2.1,
-            -0.92,
-            0.92,
+            -pointerNDC.x * rotationFactor * 2.4,
+            -1.2,
+            1.2,
           );
 
         if (isDragging) {
@@ -1365,6 +1408,15 @@ export function BccnsArchiveExperience({
           0,
           Math.min(100, ((st.roomCurrentX - st.roomMinX) / span) * 100),
         );
+
+        // Update scrubber visuals directly from live camera position — avoids
+        // the React state deadband (0.05%) that made the ball lag then snap.
+        if (scrubberLineRef.current) {
+          scrubberLineRef.current.style.setProperty("--walk-progress", `${pct}%`);
+        }
+        if (scrubberHandleRef.current) {
+          scrubberHandleRef.current.style.left = `${pct}%`;
+        }
 
         if (Math.abs(pct - st.roomProgress) > 0.05) {
           st.roomProgress = pct;
@@ -1667,12 +1719,14 @@ export function BccnsArchiveExperience({
           }}
         >
           <div
+            ref={scrubberLineRef}
             className="bccns-scrubber-line"
             style={
               { "--walk-progress": `${roomProgress}%` } as React.CSSProperties
             }
           />
           <div
+            ref={scrubberHandleRef}
             className="bccns-scrubber-handle"
             style={{ left: `${roomProgress}%` }}
           />

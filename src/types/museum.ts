@@ -191,6 +191,7 @@ export interface PortalPreviewController {
 export interface StationPictureShaderController {
   mesh: THREE.Mesh;
   material: THREE.ShaderMaterial;
+  setTexture: (tex: THREE.Texture | null) => void;
   setHovered: (hovered: boolean) => void;
   update: (dt: number, elapsed: number) => void;
 }
