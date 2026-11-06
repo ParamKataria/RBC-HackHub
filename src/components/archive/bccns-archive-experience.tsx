@@ -5,10 +5,11 @@ import React, { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { Reflector } from "three/examples/jsm/objects/Reflector.js";
 import { archiveEffects, archiveGeometry } from "@/src/lib/archive";
-import { ArchiveAsk } from "@/src/components/archive/archive-ask";
+import { ArchiveAsk, type ArchiveGlance } from "@/src/components/archive/archive-ask";
 import type {
   AppMode,
   ArchiveCollection,
+  AskView,
   ArchivePayload,
   ArchiveStation,
   CameraFaderController,
@@ -306,6 +307,23 @@ function disposeEngineResources(st: {
   st.roomPortalMeshes = [];
 }
 
+/**
+ * SOURCE OF TRUTH KEYWORDS: settledBrief, glance copy, two sentences
+ * WHAT: Keeps the first two sentences of a chapter summary or record description.
+ * WHY: The search sheet should open with a short note, not the full catalog entry.
+ * WHERE: The settled glance passed to ArchiveAsk.
+ */
+function settledBrief(text: string): string {
+  const clean = text.replace(/\s+/g, " ").trim();
+  if (!clean) return "";
+  const sentences = clean.split(/(?<=[.!?])\s+/);
+  const short = sentences.slice(0, 2).join(" ");
+  if (short.length <= 280) return short;
+  return `${short.slice(0, 277).replace(/\s+\S*$/, "")}…`;
+}
+
+type SettledNote = ArchiveGlance & { view: AskView };
+
 export function BccnsArchiveExperience({
   payload,
 }: {
@@ -352,8 +370,8 @@ export function BccnsArchiveExperience({
   const mountRef = useRef<HTMLDivElement | null>(null);
   const scrubberTrackRef = useRef<HTMLDivElement | null>(null);
   const cursorRef = useRef<HTMLDivElement | null>(null);
-  const [hallClueHiddenFor, setHallClueHiddenFor] = useState<CollectionKey | null>(null);
-  const [recordClueHiddenFor, setRecordClueHiddenFor] = useState<string | null>(null);
+  const settledKeyRef = useRef<string | null>(null);
+  const [settledNote, setSettledNote] = useState<SettledNote | null>(null);
 
   const engineRef = useRef<{
     renderer: THREE.WebGLRenderer | null;
@@ -670,7 +688,8 @@ export function BccnsArchiveExperience({
     }
 
     st.appMode = "hall";
-    setRecordClueHiddenFor(null);
+    settledKeyRef.current = null;
+    setSettledNote(null);
     setAppMode("hall");
     setWelcomeOpen(false);
     setVoiceOpen(false);
@@ -744,7 +763,8 @@ export function BccnsArchiveExperience({
     st.welcomeOpen = false;
 
     setCurrentCollectionKey(validKey);
-    setRecordClueHiddenFor(null);
+    settledKeyRef.current = null;
+    setSettledNote(null);
     setAppMode("museum");
     setWelcomeOpen(false);
     setVoiceOpen(false);
@@ -1571,6 +1591,40 @@ export function BccnsArchiveExperience({
           }
         }
 
+        const hallMoving = Math.abs(st.targetRotY - st.currentRotY) > 0.012;
+        const latchGap =
+          st.hallLatch === null
+            ? 180
+            : Math.abs(
+                shortestAngleDiffDeg(
+                  THREE.MathUtils.radToDeg(st.currentRotY),
+                  THREE.MathUtils.radToDeg(st.hallLatch),
+                ),
+              );
+        const hallSettled = hallIdle && !hallMoving && latchGap < 1.2;
+        if (!hallSettled) {
+          if (settledKeyRef.current !== null) {
+            settledKeyRef.current = null;
+            setSettledNote(null);
+          }
+        } else {
+          const portal =
+            archiveEffects.PORTAL_CONFIGS.find((item) => item.id === st.activePortalId) ??
+            archiveEffects.PORTAL_CONFIGS[0];
+          const key = `hall:${portal.collectionKey}`;
+          if (settledKeyRef.current !== key) {
+            settledKeyRef.current = key;
+            const chapter = collections.find((item) => item.key === portal.collectionKey);
+            setSettledNote({
+              id: key,
+              kicker: portal.years,
+              title: portal.title,
+              body: settledBrief(chapter?.summary || portal.subtitle),
+              view: { scope: "room", collectionKey: portal.collectionKey },
+            });
+          }
+        }
+
         for (const energy of st.energyControllers) energy.update(dt, elapsed);
         for (const lights of st.lightControllers) lights.update(dt, elapsed);
         for (const preview of st.previewControllers)
@@ -1659,6 +1713,54 @@ export function BccnsArchiveExperience({
           st.currentRoomBuild.reflector02,
         );
 
+        const roomSettled =
+          roomIdle &&
+          st.roomLatch !== null &&
+          Math.abs(st.roomCurrentX - st.roomLatch) < 0.18 &&
+          Math.abs(st.roomTargetX - st.roomCurrentX) < 0.18;
+        if (!roomSettled) {
+          if (settledKeyRef.current !== null) {
+            settledKeyRef.current = null;
+            setSettledNote(null);
+          }
+        } else {
+          const chapter = collections.find((item) => item.key === st.currentCollectionKey);
+          const stations = chapter?.stations ?? [];
+          let foundIdx = 0;
+          for (let i = 0; i < stations.length; i += 1) {
+            if (
+              archiveEffects.isEventMarkerActive(
+                i,
+                stations.length,
+                pct,
+                st.currentRoomBuild.roomConfig,
+              )
+            ) {
+              foundIdx = i;
+            }
+          }
+          const station = stations[foundIdx];
+          if (chapter && station) {
+            const key = `room:${station.id}`;
+            if (settledKeyRef.current !== key) {
+              settledKeyRef.current = key;
+              setSettledNote({
+                id: key,
+                kicker: station.display_year,
+                title: station.dc_title,
+                body: settledBrief(
+                  station.dc_description || station.citation || station.dc_type,
+                ),
+                view: {
+                  scope: "record",
+                  collectionKey: chapter.key,
+                  recordId: station.id,
+                },
+              });
+            }
+          }
+        }
+
         for (const pic of st.currentRoomBuild.pictureMeshes) {
           const isHov = pic === st.hoveredPicMesh;
           const baseX = Number(pic.userData.baseX || 0);
@@ -1733,29 +1835,6 @@ export function BccnsArchiveExperience({
   const activeStations = activeCollection?.stations ?? [];
   const currentHeaderStation =
     activeStations[activeStationIndex] ?? activeStations[0];
-  const activeHallPortal =
-    archiveEffects.PORTAL_CONFIGS[activePortalId] ??
-    archiveEffects.PORTAL_CONFIGS[0];
-  const inViewStation = activeStations[activeStationIndex] ?? activeStations[0];
-  const roomClue =
-    inViewStation && recordClueHiddenFor !== inViewStation.id
-      ? {
-          scope: "record" as const,
-          collectionKey: activeCollection.key,
-          recordId: inViewStation.id,
-          label: inViewStation.dc_title,
-        }
-      : null;
-  const hallClue =
-    hallClueHiddenFor === activeHallPortal.collectionKey
-      ? null
-      : {
-          scope: "room" as const,
-          collectionKey: activeHallPortal.collectionKey,
-          label: activeHallPortal.title,
-        };
-  const askClue = appMode === "museum" ? roomClue : hallClue;
-
   const copyRecordDeepLink = async () => {
     if (!selectedRecordModal || typeof window === "undefined") return;
     const url = new URL(window.location.href);
@@ -1815,18 +1894,7 @@ export function BccnsArchiveExperience({
           </button>
         </h1>
 
-        <ArchiveAsk
-          view={askClue}
-          onClearView={() => {
-            if (appMode === "museum") {
-              const station =
-                activeStations[activeStationIndex] ?? activeStations[0];
-              setRecordClueHiddenFor(station?.id ?? null);
-              return;
-            }
-            setHallClueHiddenFor(activeHallPortal.collectionKey);
-          }}
-        />
+        <ArchiveAsk view={settledNote?.view ?? null} glance={settledNote} />
 
         <nav className="bccns-top-actions" aria-label="Archive navigation">
           <button
