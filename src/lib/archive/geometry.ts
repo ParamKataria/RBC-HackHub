@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { computeRoomConfig, PORTAL_CONFIGS } from "@/src/lib/archive/effects";
+import { computeRoomConfig, createFloorLedMaterial, PORTAL_CONFIGS } from "@/src/lib/archive/effects";
 import type {
   ArchiveCollection,
   ArchiveStation,
@@ -1244,15 +1244,18 @@ export async function buildMuseumRoomScene({
   floorMesh.position.set(corridorCenterX, 0, 0);
   root.add(floorMesh);
 
-  // Subtle inlaid copper-ochre floor guide lines along both sides of the walk
-  const floorRuleGeom = new THREE.PlaneGeometry(corridorLen, 0.045);
-  floorRuleGeom.rotateX(-Math.PI / 2);
-  const leftFloorRule = new THREE.Mesh(floorRuleGeom, walnutTrimMat);
-  leftFloorRule.position.set(corridorCenterX, 0.008, -2.85);
-  root.add(leftFloorRule);
-  const rightFloorRule = new THREE.Mesh(floorRuleGeom, walnutTrimMat);
-  rightFloorRule.position.set(corridorCenterX, 0.008, 2.85);
-  root.add(rightFloorRule);
+  // LED strips along both sides of the walk. uv.x 0 is the entrance.
+  const floorLedMaterial = createFloorLedMaterial();
+  const floorLedGeom = new THREE.PlaneGeometry(corridorLen, 0.16);
+  floorLedGeom.rotateX(-Math.PI / 2);
+  const leftFloorLed = new THREE.Mesh(floorLedGeom, floorLedMaterial);
+  leftFloorLed.name = "floor_led_left";
+  leftFloorLed.position.set(corridorCenterX, 0.016, -2.85);
+  root.add(leftFloorLed);
+  const rightFloorLed = new THREE.Mesh(floorLedGeom, floorLedMaterial);
+  rightFloorLed.name = "floor_led_right";
+  rightFloorLed.position.set(corridorCenterX, 0.016, 2.85);
+  root.add(rightFloorLed);
 
   // Cap the gallery so the hanging wires meet a real ceiling, just above the beams.
   const galleryCeilingY = 6.72;

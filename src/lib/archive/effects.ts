@@ -337,6 +337,50 @@ export function createFloorReflector(
 }
 
 /**
+ * SOURCE OF TRUTH KEYWORDS: createFloorLedMaterial, hallway LED strip, fog fade
+ * WHAT: Builds a thin glowing floor LED that stays lit and fades out in the gallery fog.
+ * WHY: The strip should read as a steady light, not a line that turns on as the visitor walks.
+ * WHERE: buildMuseumRoomScene.
+ */
+export function createFloorLedMaterial(): THREE.ShaderMaterial {
+  return new THREE.ShaderMaterial({
+    uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.fog, {}]),
+    vertexShader: /* glsl */ `
+      varying vec2 vUv;
+      #include <fog_pars_vertex>
+      void main() {
+        vUv = uv;
+        vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+        gl_Position = projectionMatrix * mvPosition;
+        #ifdef USE_FOG
+          vFogDepth = -mvPosition.z;
+        #endif
+      }
+    `,
+    fragmentShader: /* glsl */ `
+      varying vec2 vUv;
+      #include <fog_pars_fragment>
+      void main() {
+        float across = abs(vUv.y - 0.5) * 2.0;
+        float core = exp(-across * across * 70.0);
+        float halo = exp(-across * across * 8.0);
+        float glow = core * 1.15 + halo * 0.28;
+        #ifdef USE_FOG
+          float fogFactor = smoothstep(fogNear, fogFar, vFogDepth);
+          glow *= 1.0 - fogFactor;
+        #endif
+        vec3 color = vec3(1.0, 0.82, 0.46) * glow;
+        gl_FragColor = vec4(color, 1.0);
+      }
+    `,
+    transparent: true,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+    fog: true,
+  });
+}
+
+/**
  * SOURCE OF TRUTH KEYWORDS: updateLeapfrogReflectors, reflector_01, reflector_02
  * WHAT: Leapfrogs two floor reflectors along the gallery walk as the visitor dollies forward or back.
  * WHY: Keeps floor reflections continuous across long archival corridors.
