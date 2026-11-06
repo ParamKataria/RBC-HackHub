@@ -1,0 +1,42 @@
+{
+  "build": "2026-11-05T00:00:00Z",
+  "project": "BCCNS Digital Archive",
+  "style": "Elegant/editorial",
+  "mood": "solemn, archival, authoritative, warm",
+  "palette": {
+    "background": "#fff5f4",
+    "surface": "#f6ebea",
+    "primary": "#936362",
+    "accent": "#477b6a",
+    "textPrimary": "#221717",
+    "border": "#e5dada"
+  },
+  "typography": {
+    "display": "Cormorant Garamond",
+    "body": "Inter"
+  },
+  "bugs": {
+    "a_arch_borders_removed": true,
+    "b_hallway_arches_consistent": true,
+    "c_hallway_preview_images": "investigated - added onerror handler to createArchPreviewTexture; image loading pipeline verified correct via /api/image-proxy with CORS headers",
+    "d_dial_thumbnails_reverted": true
+  },
+  "changes": [
+    "Replaced ~80 hardcoded color instances in app/globals.css with CSS variable references (--bccns-ink, --bccns-paper, --bccns-ochre, --bccns-gold)",
+    "Added img.onerror handler to createArchPreviewTexture in src/lib/archive/geometry.ts for robust image loading",
+    "Updated CSS comment header to reflect new palette",
+    "Created .tastemaker/style-lock.md with color contract, typography, shape language, motion specs, anti-references"
+  ],
+  "filesChanged": [
+    "app/globals.css",
+    "src/lib/archive/geometry.ts",
+    ".tastemaker/style-lock.md",
+    ".tastemaker/log.json"
+  ],
+  "validation": {
+    "tscNoEmit": "pending",
+    "antiSlopScan": "scripts not found in repo",
+    "auditMotion": "scripts not found in repo",
+    "checkComponentCoherence": "scripts not found in repo"
+  }
+}

@@ -1,7 +1,7 @@
 import "server-only";
 
 import { createClient } from "@/lib/supabase/server";
-import { catalogRecordSchema, type SearchQuery, type SearchResponse } from "@/src/types";
+import { catalogRecordSchema, type CatalogRecord, type SearchQuery, type SearchResponse } from "@/src/types";
 import { z } from "zod";
 
 const PAGE_SIZE = 500;
@@ -87,4 +87,18 @@ export async function searchRecords(
   }
 
   return { count, filters, results };
+}
+
+/**
+ * SOURCE OF TRUTH KEYWORDS: recordsByIds, CatalogRecord, record id, search columns
+ * WHAT: Loads catalog rows for the record ids the viewer is standing in front of.
+ * WHY: Ask can place those rows ahead of the general search without trusting a description sent from the browser.
+ * WHERE: lib/services/ask.ts when a room or picture is in view.
+ */
+export async function recordsByIds(ids: readonly string[]): Promise<CatalogRecord[]> {
+  if (ids.length === 0) return [];
+  const supabase = await createClient();
+  const { data, error } = await supabase.from("records").select(SEARCH_COLUMNS).in("id", [...ids]);
+  failIf(error);
+  return z.array(catalogRecordSchema).parse(data);
 }

@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Geist } from "next/font/google";
+import { Cormorant_Garamond, Geist } from "next/font/google";
 import { ThemeProvider } from "next-themes";
 import "./globals.css";
 
@@ -9,12 +9,21 @@ const defaultUrl = process.env.VERCEL_URL
 
 export const metadata: Metadata = {
   metadataBase: new URL(defaultUrl),
-  title: "Next.js and Supabase Starter Kit",
-  description: "The fastest way to build apps with Next.js and Supabase",
+  title: "Black Cultural Centre for Nova Scotia — Digital Archive",
+  description:
+    "Interactive digital archive of the Black Cultural Centre for Nova Scotia, Cherry Brook (established 1983). Explore African Nova Scotian records held across Nova Scotia Archives, Library and Archives Canada, the Black Loyalist Heritage Centre, and the Centre's collections.",
 };
 
 const geistSans = Geist({
-  variable: "--font-geist-sans",
+  variable: "--font-bccns-sans",
+  display: "swap",
+  subsets: ["latin"],
+});
+
+const cormorantSerif = Cormorant_Garamond({
+  variable: "--font-bccns-serif",
+  weight: ["400", "500", "600", "700"],
+  style: ["normal", "italic"],
   display: "swap",
   subsets: ["latin"],
 });
@@ -25,12 +34,16 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html
+      lang="en"
+      className={`${geistSans.variable} ${cormorantSerif.variable}`}
+      suppressHydrationWarning
+    >
       <body className={`${geistSans.className} antialiased`}>
         <ThemeProvider
           attribute="class"
-          defaultTheme="system"
-          enableSystem
+          defaultTheme="light"
+          enableSystem={false}
           disableTransitionOnChange
         >
           {children}
