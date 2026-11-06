@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { computeRoomConfig, PORTAL_CONFIGS } from "@/src/lib/archive/effects";
+import { computeRoomConfig, createFloorLedMaterial, PORTAL_CONFIGS } from "@/src/lib/archive/effects";
 import type {
   ArchiveCollection,
   ArchiveStation,
@@ -363,6 +363,80 @@ function createArchTitleBannerTexture(
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.anisotropy = 4;
   archTitleBannerTextureCache.set(cacheKey, tex);
+  return tex;
+}
+
+/**
+ * SOURCE OF TRUTH KEYWORDS: createStationTitlePlateTexture, gallery caption, Cormorant Garamond, station title
+ * WHAT: Paints a warm-paper caption with the record year and a serif title for one hallway board.
+ * WHY: Each framed scan needs a readable title on the board itself, set in the archive's serif rather than baked into the picture.
+ * WHERE: The museum picture frames in buildMuseumRoomScene.
+ */
+function createStationTitlePlateTexture(
+  title: string,
+  year: string,
+): THREE.CanvasTexture {
+  const canvas = document.createElement("canvas");
+  canvas.width = 1024;
+  canvas.height = 350;
+  const ctx = canvas.getContext("2d");
+  if (ctx) {
+    // Same warm paper as the scan canvas (#F3EEE6) so the picture and the title read as one board.
+    ctx.fillStyle = "#F3EEE6";
+    ctx.fillRect(0, 0, 1024, 350);
+
+    const yearLabel = year.trim().toUpperCase();
+    let titleTop = 78;
+    if (yearLabel) {
+      ctx.fillStyle = "#5C4A3A";
+      ctx.font = '600 28px "Inter", -apple-system, sans-serif';
+      ctx.textBaseline = "middle";
+      const glyphs = Array.from(yearLabel);
+      const tracking = 3.2;
+      const widths = glyphs.map((glyph) => ctx.measureText(glyph).width);
+      const total =
+        widths.reduce((sum, width) => sum + width, 0) +
+        tracking * Math.max(0, glyphs.length - 1);
+      let cursor = (1024 - total) / 2;
+      ctx.textAlign = "left";
+      glyphs.forEach((glyph, index) => {
+        ctx.fillText(glyph, cursor, 58);
+        cursor += widths[index] + tracking;
+      });
+      ctx.fillStyle = "rgba(22, 22, 22, 0.18)";
+      ctx.fillRect(412, 92, 200, 2);
+      titleTop = 118;
+    }
+
+    ctx.fillStyle = "#1A1612";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    const sizes = [58, 50, 42, 36];
+    let chosenSize = 36;
+    let lines: string[] = [];
+    const wordCount = title.trim().split(/\s+/).filter(Boolean).length;
+    for (const size of sizes) {
+      ctx.font = `600 ${size}px "Cormorant Garamond", Georgia, serif`;
+      const wrapped = wrapCanvasLines(ctx, title, 920, 3);
+      const shown = wrapped.join(" ").split(/\s+/).filter(Boolean).length;
+      chosenSize = size;
+      lines = wrapped;
+      if (shown >= wordCount) break;
+    }
+    if (lines.join(" ").split(/\s+/).filter(Boolean).length < wordCount && lines.length > 0) {
+      const last = lines[lines.length - 1];
+      lines[lines.length - 1] = last.length > 1 ? `${last.replace(/\s+\S*$/, "")}…` : `${last}…`;
+    }
+    const lineHeight = Math.round(chosenSize * 1.14);
+    const firstCenter = titleTop + 28 + lineHeight / 2;
+    lines.forEach((line, index) => {
+      ctx.fillText(line, 512, firstCenter + index * lineHeight);
+    });
+  }
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 8;
   return tex;
 }
 
@@ -865,6 +939,37 @@ function addArchOpeningEdge(group: THREE.Group, washHex: number | string): void 
   );
 }
 
+/**
+ * SOURCE OF TRUTH KEYWORDS: createInsetRingLedGeometry, rotunda floor ring, LED circle
+ * WHAT: Builds a flat ring whose v coordinate runs across the strip, so the floor LED shader can glow it.
+ * WHY: The rotunda light sits in from the wall as a circle, not as a line jammed into the floor edge.
+ * WHERE: buildProceduralHallScene.
+ */
+function createInsetRingLedGeometry(radius: number, width: number, segments = 160): THREE.BufferGeometry {
+  const inner = radius - width / 2;
+  const outer = radius + width / 2;
+  const positions: number[] = [];
+  const uvs: number[] = [];
+  const indices: number[] = [];
+  for (let i = 0; i <= segments; i += 1) {
+    const theta = (i / segments) * Math.PI * 2;
+    const cos = Math.cos(theta);
+    const sin = Math.sin(theta);
+    positions.push(inner * cos, 0, inner * sin, outer * cos, 0, outer * sin);
+    uvs.push(i / segments, 0, i / segments, 1);
+  }
+  for (let i = 0; i < segments; i += 1) {
+    const a = i * 2;
+    indices.push(a, a + 2, a + 1, a + 1, a + 2, a + 3);
+  }
+  const geom = new THREE.BufferGeometry();
+  geom.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+  geom.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
+  geom.setIndex(indices);
+  geom.computeVertexNormals();
+  return geom;
+}
+
 function createFloorGeometry(): THREE.CircleGeometry {
   const geom = new THREE.CircleGeometry(12.5, 72);
   geom.rotateX(-Math.PI / 2);
@@ -911,6 +1016,15 @@ export function buildProceduralHallScene(
   floorMesh.name = "FloorHall";
   floorMesh.quaternion.copy(rot20);
   root.add(floorMesh);
+
+  // Inset from the wall (inner face at 9.61) so the ring reads as a circle in the floor.
+  const rotundaRing = new THREE.Mesh(
+    createInsetRingLedGeometry(7.55, 0.38),
+    createFloorLedMaterial(),
+  );
+  rotundaRing.name = "rotunda_floor_led";
+  rotundaRing.position.y = 0.02;
+  root.add(rotundaRing);
 
   const reflectorAnchor = new THREE.Object3D();
   reflectorAnchor.name = "reflector";
@@ -1147,12 +1261,6 @@ export async function buildMuseumRoomScene({
     metalness: 0.32,
   });
 
-  const goldTrimMat = new THREE.MeshStandardMaterial({
-    color: 0xc9892d,
-    roughness: 0.32,
-    metalness: 0.42,
-  });
-
   const walnutTrimMat = new THREE.MeshStandardMaterial({
     color: 0x6e4b30,
     roughness: 0.45,
@@ -1176,24 +1284,30 @@ export async function buildMuseumRoomScene({
   floorMesh.position.set(corridorCenterX, 0, 0);
   root.add(floorMesh);
 
-  // Subtle inlaid copper-ochre floor guide lines along both sides of the walk
-  const floorRuleGeom = new THREE.PlaneGeometry(corridorLen, 0.045);
-  floorRuleGeom.rotateX(-Math.PI / 2);
-  const leftFloorRule = new THREE.Mesh(floorRuleGeom, walnutTrimMat);
-  leftFloorRule.position.set(corridorCenterX, 0.008, -2.85);
-  root.add(leftFloorRule);
-  const rightFloorRule = new THREE.Mesh(floorRuleGeom, walnutTrimMat);
-  rightFloorRule.position.set(corridorCenterX, 0.008, 2.85);
-  root.add(rightFloorRule);
+  // LED strips along both sides of the walk. uv.x 0 is the entrance.
+  const floorLedMaterial = createFloorLedMaterial();
+  const floorLedGeom = new THREE.PlaneGeometry(corridorLen, 0.16);
+  floorLedGeom.rotateX(-Math.PI / 2);
+  const leftFloorLed = new THREE.Mesh(floorLedGeom, floorLedMaterial);
+  leftFloorLed.name = "floor_led_left";
+  leftFloorLed.position.set(corridorCenterX, 0.016, -2.85);
+  root.add(leftFloorLed);
+  const rightFloorLed = new THREE.Mesh(floorLedGeom, floorLedMaterial);
+  rightFloorLed.name = "floor_led_right";
+  rightFloorLed.position.set(corridorCenterX, 0.016, 2.85);
+  root.add(rightFloorLed);
+
+  // Cap the gallery so the hanging wires meet a real ceiling, just above the beams.
+  const galleryCeilingY = 6.72;
 
   // 2. Solid Architectural Museum Gallery Walls (replacing open side arches)
-  const sideWallGeom = new THREE.BoxGeometry(corridorLen, 8.8, 0.36);
+  const sideWallGeom = new THREE.BoxGeometry(corridorLen, galleryCeilingY, 0.36);
   const leftWall = new THREE.Mesh(sideWallGeom, wallMat);
-  leftWall.position.set(corridorCenterX, 4.4, -wallZ);
+  leftWall.position.set(corridorCenterX, galleryCeilingY / 2, -wallZ);
   root.add(leftWall);
 
   const rightWall = new THREE.Mesh(sideWallGeom, wallMat);
-  rightWall.position.set(corridorCenterX, 4.4, wallZ);
+  rightWall.position.set(corridorCenterX, galleryCeilingY / 2, wallZ);
   root.add(rightWall);
 
   // Baseboard plinths, dado rails, and upper picture-hanging rails along both gallery walls
@@ -1222,6 +1336,19 @@ export async function buildMuseumRoomScene({
   }
 
   // Coffered Gallery Ceiling & Warm Daylight Skylight Strip
+  const ceilingMat = new THREE.MeshLambertMaterial({
+    color: 0xd9c6b0,
+    emissive: 0xcbb8a2,
+    emissiveIntensity: 0.04,
+    side: THREE.DoubleSide,
+  });
+  const ceilingGeom = new THREE.PlaneGeometry(corridorLen + 2, wallZ * 2 + 1.2);
+  ceilingGeom.rotateX(Math.PI / 2);
+  const ceiling = new THREE.Mesh(ceilingGeom, ceilingMat);
+  ceiling.name = "GalleryCeiling";
+  ceiling.position.set(corridorCenterX, galleryCeilingY, 0);
+  root.add(ceiling);
+
   const ceilingBeamStride = 7.2;
   const numCeilingBeams = Math.ceil(corridorLen / ceilingBeamStride) + 1;
   const crossBeamGeom = new THREE.BoxGeometry(0.38, 0.34, wallZ * 2 + 0.4);
@@ -1249,9 +1376,9 @@ export async function buildMuseumRoomScene({
   }
 
   // Back Entry Wall behind camera start
-  const backWallGeom = new THREE.BoxGeometry(0.4, 9.0, wallZ * 2 + 1.0);
+  const backWallGeom = new THREE.BoxGeometry(0.4, galleryCeilingY, wallZ * 2 + 1.0);
   const backWall = new THREE.Mesh(backWallGeom, wallMat);
-  backWall.position.set(startWallX, 4.5, 0);
+  backWall.position.set(startWallX, galleryCeilingY / 2, 0);
   root.add(backWall);
 
   // 3. End-of-Hallway Twin Arch Portals Wall (portal_1 -> next collection, portal_2 -> previous collection / rotunda)
@@ -1401,20 +1528,65 @@ export async function buildMuseumRoomScene({
   const picStepX =
     stations.length > 1 ? (lastPicX - firstPicX) / (stations.length - 1) : 7.2;
 
-  // Picture canvas geometry in XY plane (+Z front normal), co-aligned with the 3D picture frame
-  const picGeom = new THREE.PlaneGeometry(2.54, 2.54, 24, 24);
+  // Picture above, serif title plate below. The board is raised so the caption clears the baseboard.
+  const imageSize = 2.54;
+  const imageHalf = imageSize / 2;
+  const titleWidth = imageSize;
+  const titleHeight = 0.82;
+  const titleGap = 0;
+  const titleCenterY = -(imageHalf + titleGap + titleHeight / 2);
+  const frameLip = 0.15;
+  const frameOuterW = 2.96;
+  const sideX = frameOuterW / 2 - frameLip / 2;
+  const topBarY = imageHalf + 0.1 + frameLip / 2;
+  const bottomBarY = titleCenterY - titleHeight / 2 - 0.1 - frameLip / 2;
+  const vertTop = topBarY - frameLip / 2;
+  const vertBottom = bottomBarY + frameLip / 2;
+  const vertHeight = vertTop - vertBottom;
+  const vertY = (vertTop + vertBottom) / 2;
+  const matTop = vertTop - 0.02;
+  const matBottom = vertBottom + 0.02;
+  const matHeight = matTop - matBottom;
+  const matY = (matTop + matBottom) / 2;
+  const contentBottom = titleCenterY - titleHeight / 2;
+  const contentTop = imageHalf;
+  const contentSpan = Math.max(0.001, contentTop - contentBottom);
+  const pictureLampBase = (-imageHalf - contentBottom) / contentSpan;
+  const pictureLampScale = imageSize / contentSpan;
+  const titleLampScale = titleHeight / contentSpan;
+
+  const yPos = 2.98;
+  // Same cap as GalleryCeiling. The wire runs from the frame top into that plane.
+  const ceilingLocalY = galleryCeilingY - yPos + 0.02;
+  const rodBottom = topBarY;
+  const rodLength = Math.max(0.45, ceilingLocalY - rodBottom);
+  const rodY = rodBottom + rodLength / 2;
+
+  const picGeom = new THREE.PlaneGeometry(imageSize, imageSize, 24, 24);
+  const titleGeom = new THREE.PlaneGeometry(titleWidth, titleHeight);
 
   // 4-Bar Mitered Museum Picture Frame geometries & recessed mat board (strictly behind z = 0 so picMesh is never occluded)
-  const frameHorizBarGeom = new THREE.BoxGeometry(2.92, 0.16, 0.12);
-  const frameVertBarGeom = new THREE.BoxGeometry(0.16, 2.60, 0.12);
-  const filletHorizBarGeom = new THREE.BoxGeometry(2.64, 0.045, 0.09);
-  const filletVertBarGeom = new THREE.BoxGeometry(0.045, 2.55, 0.09);
-  const matBoardBoxGeom = new THREE.BoxGeometry(2.62, 2.62, 0.03);
-  const hangingRodGeom = new THREE.CylinderGeometry(0.012, 0.012, 2.1, 8);
-  const pictureLightBarGeom = new THREE.BoxGeometry(1.35, 0.055, 0.24);
+  const frameHorizBarGeom = new THREE.BoxGeometry(frameOuterW, frameLip, 0.12);
+  const frameVertBarGeom = new THREE.BoxGeometry(frameLip, vertHeight, 0.12);
+  const filletHorizBarGeom = new THREE.BoxGeometry(frameOuterW - 0.28, 0.045, 0.09);
+  const filletVertBarGeom = new THREE.BoxGeometry(0.045, vertHeight - 0.12, 0.09);
+  const matBoardBoxGeom = new THREE.BoxGeometry(frameOuterW - 0.3, matHeight, 0.03);
+  const wireMat = new THREE.MeshBasicMaterial({ color: 0x3a2818 });
+  const hangingRodGeom = new THREE.CylinderGeometry(0.015, 0.015, rodLength, 8);
+  const ceilingCleatGeom = new THREE.BoxGeometry(0.1, 0.045, 0.1);
+  const pictureLightBarGeom = new THREE.BoxGeometry(1.42, 0.07, 0.22);
   const pictureLightArmGeom = new THREE.BoxGeometry(0.06, 0.06, 0.36);
+  const lampGlowGeom = new THREE.BoxGeometry(1.22, 0.025, 0.14);
+  const lampHousingMat = new THREE.MeshStandardMaterial({
+    color: 0xc9892d,
+    roughness: 0.38,
+    metalness: 0.45,
+    emissive: 0x5a3d12,
+    emissiveIntensity: 0.35,
+  });
+  const lampGlowMat = new THREE.MeshBasicMaterial({ color: 0xfff4d2 });
 
-  const shadowGeom = new THREE.PlaneGeometry(3.1, 1.35);
+  const shadowGeom = new THREE.PlaneGeometry(3.4, 1.85);
   shadowGeom.rotateX(-Math.PI / 2);
   const shadowTex = createContactShadowTexture();
   const shadowMat = new THREE.MeshBasicMaterial({
@@ -1424,12 +1596,12 @@ export async function buildMuseumRoomScene({
   });
 
   const pictureMeshes: THREE.Mesh[] = [];
+  const stationLabelMeshes: THREE.Mesh[] = [];
   const pictureXPositions: number[] = [];
 
   stations.forEach((station, idx) => {
     const isRightSide = idx % 2 === 0;
     const xPos = +(firstPicX + idx * picStepX).toFixed(3);
-    const yPos = 2.42;
     const zPos = (isRightSide ? 1 : -1) * (wallZ - 1.55);
     // Tilt each frame ~30 degrees toward the approaching visitor so all scans are clearly visible upon entering the hallway
     const cantAngleY = isRightSide ? Math.PI + 0.52 : -0.52;
@@ -1458,6 +1630,8 @@ export async function buildMuseumRoomScene({
     picMesh.userData.normalX = normalX;
     picMesh.userData.normalZ = normalZ;
     picMesh.userData.cantAngleY = cantAngleY;
+    picMesh.userData.lampBase = pictureLampBase;
+    picMesh.userData.lampScale = pictureLampScale;
 
     root.add(picMesh);
     pictureMeshes.push(picMesh);
@@ -1471,62 +1645,102 @@ export async function buildMuseumRoomScene({
     frameGroup.userData.baseX = xPos;
     frameGroup.userData.baseZ = zPos;
 
+    const titleMesh = new THREE.Mesh(
+      titleGeom,
+      new THREE.MeshBasicMaterial({
+        map: createStationTitlePlateTexture(
+          station.dc_title,
+          station.display_year,
+        ),
+        side: THREE.DoubleSide,
+        fog: true,
+      }),
+    );
+    titleMesh.name = `station_label_${idx + 1}`;
+    titleMesh.position.set(0, titleCenterY, 0.02);
+    titleMesh.userData.stationData = station;
+    titleMesh.userData.stationIndex = idx;
+    titleMesh.userData.stationPicture = picMesh;
+    titleMesh.userData.lampBase = 0;
+    titleMesh.userData.lampScale = titleLampScale;
+    frameGroup.add(titleMesh);
+    stationLabelMeshes.push(titleMesh);
+
     // 4-Bar Outer Museum Frame (top, bottom, left, right)
     const topBar = new THREE.Mesh(frameHorizBarGeom, frameOuterMat);
-    topBar.position.set(0, 1.38, 0.01);
+    topBar.position.set(0, topBarY, 0.01);
     frameGroup.add(topBar);
 
     const bottomBar = new THREE.Mesh(frameHorizBarGeom, frameOuterMat);
-    bottomBar.position.set(0, -1.38, 0.01);
+    bottomBar.position.set(0, bottomBarY, 0.01);
     frameGroup.add(bottomBar);
 
     const leftBar = new THREE.Mesh(frameVertBarGeom, frameOuterMat);
-    leftBar.position.set(-1.38, 0, 0.01);
+    leftBar.position.set(-sideX, vertY, 0.01);
     frameGroup.add(leftBar);
 
     const rightBar = new THREE.Mesh(frameVertBarGeom, frameOuterMat);
-    rightBar.position.set(1.38, 0, 0.01);
+    rightBar.position.set(sideX, vertY, 0.01);
     frameGroup.add(rightBar);
 
     // 4-Bar Inner Copper-Ochre Fillet
     const topFillet = new THREE.Mesh(filletHorizBarGeom, ochreTrimMat);
-    topFillet.position.set(0, 1.295, 0.005);
+    topFillet.position.set(0, vertTop - 0.02, 0.005);
     frameGroup.add(topFillet);
 
     const bottomFillet = new THREE.Mesh(filletHorizBarGeom, ochreTrimMat);
-    bottomFillet.position.set(0, -1.295, 0.005);
+    bottomFillet.position.set(0, vertBottom + 0.02, 0.005);
     frameGroup.add(bottomFillet);
 
     const leftFillet = new THREE.Mesh(filletVertBarGeom, ochreTrimMat);
-    leftFillet.position.set(-1.295, 0, 0.005);
+    leftFillet.position.set(-(sideX - frameLip / 2 - 0.02), vertY, 0.005);
     frameGroup.add(leftFillet);
 
     const rightFillet = new THREE.Mesh(filletVertBarGeom, ochreTrimMat);
-    rightFillet.position.set(1.295, 0, 0.005);
+    rightFillet.position.set(sideX - frameLip / 2 - 0.02, vertY, 0.005);
     frameGroup.add(rightFillet);
 
-    // Recessed warm-paper backing board (z from -0.05 to -0.02, strictly behind picMesh at +0.018)
+    // Recessed warm-paper backing board, strictly behind the scan and the title plate
     const matBoard = new THREE.Mesh(matBoardBoxGeom, paperBackingMat);
-    matBoard.position.set(0, 0, -0.035);
+    matBoard.position.set(0, matY, -0.035);
     frameGroup.add(matBoard);
 
-    // Two vertical gallery suspension rods rising to the picture rail
-    const leftRod = new THREE.Mesh(hangingRodGeom, plinthMat);
-    leftRod.position.set(-0.98, 2.25, -0.04);
-    frameGroup.add(leftRod);
+    // Two wires from the top of the frame into a cleat on the ceiling
+    for (const side of [-1, 1]) {
+      const wire = new THREE.Mesh(hangingRodGeom, wireMat);
+      wire.position.set(side * 0.98, rodY, 0.02);
+      // The wire's midpoint is above the camera view, so frustum culling drops the whole line.
+      wire.frustumCulled = false;
+      frameGroup.add(wire);
 
-    const rightRod = new THREE.Mesh(hangingRodGeom, plinthMat);
-    rightRod.position.set(0.98, 2.25, -0.04);
-    frameGroup.add(rightRod);
+      const cleat = new THREE.Mesh(ceilingCleatGeom, frameOuterMat);
+      cleat.position.set(side * 0.98, ceilingLocalY, 0.02);
+      cleat.frustumCulled = false;
+      frameGroup.add(cleat);
+    }
 
-    // Overhead museum picture light bar & arm
-    const lightBar = new THREE.Mesh(pictureLightBarGeom, goldTrimMat);
-    lightBar.position.set(0, 1.58, 0.16);
+    // Picture lamp: brass housing, glowing diffuser, and a spot aimed down the board
+    const lightBar = new THREE.Mesh(pictureLightBarGeom, lampHousingMat);
+    lightBar.position.set(0, topBarY + 0.2, 0.18);
     frameGroup.add(lightBar);
 
+    const lampGlow = new THREE.Mesh(lampGlowGeom, lampGlowMat);
+    lampGlow.position.set(0, topBarY + 0.15, 0.2);
+    frameGroup.add(lampGlow);
+
     const lightArm = new THREE.Mesh(pictureLightArmGeom, plinthMat);
-    lightArm.position.set(0, 1.54, 0.0);
+    lightArm.position.set(0, topBarY + 0.14, 0.02);
     frameGroup.add(lightArm);
+
+    const lampTarget = new THREE.Object3D();
+    lampTarget.position.set(0, -0.15, 0.12);
+    frameGroup.add(lampTarget);
+
+    const lamp = new THREE.SpotLight(0xfff1cc, 6, 5.2, 0.78, 0.65, 1.4);
+    lamp.position.set(0, topBarY + 0.16, 0.24);
+    lamp.target = lampTarget;
+    lamp.castShadow = false;
+    frameGroup.add(lamp);
 
     root.add(frameGroup);
 
@@ -1561,6 +1775,7 @@ export async function buildMuseumRoomScene({
     viewNode,
     camera,
     pictureMeshes,
+    stationLabelMeshes,
     pictureXPositions,
     roomConfig,
     portal1Anchor,
