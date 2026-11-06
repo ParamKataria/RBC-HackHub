@@ -924,7 +924,7 @@ export function createCameraFaderPlane(
     fragmentShader: /* glsl */ `
       uniform float uAlpha;
       void main() {
-        gl_FragColor = vec4(0.914, 0.867, 0.812, uAlpha);
+        gl_FragColor = vec4(0.910, 0.851, 0.784, uAlpha);
       }
     `,
     transparent: true,

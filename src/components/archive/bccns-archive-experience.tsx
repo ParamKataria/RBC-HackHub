@@ -577,7 +577,7 @@ export function BccnsArchiveExperience({
           height: 20,
           opacity: 0.07,
           blur: 0,
-          matteColor: 0xf3eee6,
+          matteColor: 0xe8d9c8,
         }),
       );
     }
@@ -671,9 +671,9 @@ export function BccnsArchiveExperience({
     setVoiceOpen(false);
     setPortalPromptText(null);
 
-    st.scene.background = new THREE.Color(0xf3eee6);
-    st.scene.fog = new THREE.Fog(0xf3eee6, 8, 30);
-    st.renderer.setClearColor(0xf3eee6, 1);
+    st.scene.background = new THREE.Color(0xe8d9c8);
+    st.scene.fog = new THREE.Fog(0xe8d9c8, 8, 30);
+    st.renderer.setClearColor(0xe8d9c8, 1);
     if (st.ambientLight) st.ambientLight.intensity = 3.2;
 
     st.currentHallRoot = archiveGeometry.buildProceduralHallScene(
@@ -803,13 +803,13 @@ export function BccnsArchiveExperience({
         width: 26,
         height: 19,
         opacity: 0.055,
-        matteColor: 0xf3eee6,
+        matteColor: 0xe8d9c8,
       }),
       archiveEffects.createFloorReflector(roomBuild.reflector02, {
         width: 26,
         height: 19,
         opacity: 0.055,
-        matteColor: 0xf3eee6,
+        matteColor: 0xe8d9c8,
       }),
     );
 
@@ -1093,13 +1093,13 @@ export function BccnsArchiveExperience({
     });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.setSize(window.innerWidth, window.innerHeight);
-    renderer.setClearColor(0xf3eee6, 1);
+    renderer.setClearColor(0xe8d9c8, 1);
     container.innerHTML = "";
     container.appendChild(renderer.domElement);
 
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0xf3eee6);
-    scene.fog = new THREE.Fog(0xf3eee6, 8, 30);
+    scene.background = new THREE.Color(0xe8d9c8);
+    scene.fog = new THREE.Fog(0xe8d9c8, 8, 30);
 
     const ambientLight = new THREE.AmbientLight(0xfffaf0, 3.2);
     scene.add(ambientLight);
