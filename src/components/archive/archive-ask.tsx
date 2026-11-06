@@ -79,7 +79,6 @@ export function ArchiveAsk({
   const [clearingQuestion, setClearingQuestion] = useState(false);
   const submittedQuestionRef = useRef(false);
   const [answers, setAnswers] = useState<ThreadAnswer[]>([]);
-  const [hiddenGlanceId, setHiddenGlanceId] = useState<string | null>(null);
   const [closing, setClosing] = useState(false);
   const closingTargetRef = useRef<{ clearAnswers: boolean; glanceId: string | null } | null>(null);
 
@@ -161,44 +160,43 @@ export function ArchiveAsk({
   };
 
   const [heldGlance, setHeldGlance] = useState(glance);
-  const [glanceOpen, setGlanceOpen] = useState(Boolean(glance));
+  const [glanceOpen, setGlanceOpen] = useState(false);
 
   useEffect(() => {
     if (!glance) {
       setGlanceOpen(false);
       return;
     }
-    if (hiddenGlanceId === glance.id) {
-      setHeldGlance(glance);
-      setGlanceOpen(false);
-      return;
-    }
     setHeldGlance(glance);
-    setGlanceOpen(true);
-  }, [glance, hiddenGlanceId]);
+    setGlanceOpen(false);
+  }, [glance]);
 
   useEffect(() => {
-    if (glanceOpen || !heldGlance) return;
+    if (glance || glanceOpen || !heldGlance) return;
     const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     const timer = window.setTimeout(() => setHeldGlance(null), reduceMotion ? 0 : 760);
     return () => window.clearTimeout(timer);
-  }, [glanceOpen, heldGlance]);
+  }, [glance, glanceOpen, heldGlance]);
 
   const pending = answers.some((item) => item.pending);
   const shownAnswer = [...answers].reverse().find((item) => !item.pending && (item.result || item.error)) ?? null;
-  const glanceDismissed = hiddenGlanceId !== null && hiddenGlanceId === (glance?.id ?? heldGlance?.id ?? null);
+
+  const openDetails = () => {
+    if (!glance) return;
+    setHeldGlance(glance);
+    setGlanceOpen(true);
+  };
 
   const clearCurrent = () => {
     if (closing) return;
-    const contextAvailable = glance !== null && hiddenGlanceId !== glance.id;
-    if (shownAnswer && contextAvailable) {
+    if (shownAnswer && glance) {
       setAnswers([]);
+      setHeldGlance(glance);
+      setGlanceOpen(true);
       return;
     }
-    closingTargetRef.current = {
-      clearAnswers: shownAnswer !== null,
-      glanceId: glance?.id ?? heldGlance?.id ?? null,
-    };
+    closingTargetRef.current = { clearAnswers: shownAnswer !== null, glanceId: null };
+    setGlanceOpen(false);
     setClosing(true);
   };
 
@@ -208,21 +206,64 @@ export function ArchiveAsk({
     const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     const timer = window.setTimeout(() => {
       if (target?.clearAnswers) setAnswers([]);
-      if (target?.glanceId) setHiddenGlanceId(target.glanceId);
       setClosing(false);
     }, reduceMotion ? 0 : 760);
     return () => window.clearTimeout(timer);
   }, [closing]);
 
   const revealed = shownAnswer !== null;
-  const showGlance = Boolean(heldGlance) && !glanceDismissed;
-  const expanded = !closing && ((glanceOpen && !glanceDismissed) || revealed);
+  const showGlance = Boolean(heldGlance);
+  const expanded = !closing && (glanceOpen || revealed);
+  const infoWanted = Boolean(glance) && !expanded;
+  const [infoMounted, setInfoMounted] = useState(false);
+  const [infoShown, setInfoShown] = useState(false);
+  const [textShown, setTextShown] = useState(false);
+
+  /**
+   * SOURCE OF TRUTH KEYWORDS: info fade, text fade, ArchiveAsk, glance indicator
+   * WHAT: Fades the info mark in and out, and fades the note only after the sheet has opened.
+   * WHY: Unmounting the mark skips the fade, and fading the note while the sheet height is still zero makes the words pop in.
+   * WHERE: ArchiveAsk header search.
+   */
+  useEffect(() => {
+    if (!infoWanted) {
+      setInfoShown(false);
+      const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      const timer = window.setTimeout(() => setInfoMounted(false), reduceMotion ? 0 : 460);
+      return () => window.clearTimeout(timer);
+    }
+    setInfoMounted(true);
+    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (reduceMotion) {
+      setInfoShown(true);
+      return;
+    }
+    let inner = 0;
+    const outer = window.requestAnimationFrame(() => {
+      inner = window.requestAnimationFrame(() => setInfoShown(true));
+    });
+    return () => {
+      window.cancelAnimationFrame(outer);
+      window.cancelAnimationFrame(inner);
+    };
+  }, [infoWanted]);
+
+  useEffect(() => {
+    if (!expanded) {
+      setTextShown(false);
+      return;
+    }
+    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const timer = window.setTimeout(() => setTextShown(true), reduceMotion ? 0 : 280);
+    return () => window.clearTimeout(timer);
+  }, [expanded]);
   const citations: AskCitation[] = shownAnswer?.result?.citations.slice(0, 4) ?? [];
   const surfaceClass = [
     "bccns-siri",
     focused ? "is-focused" : "",
     pending ? "is-pending" : "",
     expanded ? "is-expanded" : "",
+    textShown ? "is-text" : "",
     revealed ? "is-open" : "",
   ]
     .filter((name) => name.length > 0)
@@ -255,6 +296,7 @@ export function ArchiveAsk({
             onChange={(event) => setQuestion(event.target.value)}
             onFocus={() => {
               setFocused(true);
+              if (glance && !revealed && !glanceOpen) openDetails();
               if (!submittedQuestionRef.current || !question || clearingQuestion) return;
               const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
               if (reduceMotion) {
@@ -272,15 +314,31 @@ export function ArchiveAsk({
             }}
             onBlur={() => setFocused(false)}
           />
-          {expanded && (
-            <button
-              type="button"
-              className="bccns-siri-dismiss-btn"
-              aria-label="Clear context"
-              onClick={clearCurrent}
-            >
-              ×
-            </button>
+          {(infoMounted || expanded) && (
+            <span className="bccns-siri-trail">
+              {infoMounted && (
+                <button
+                  type="button"
+                  className={`bccns-siri-info${infoShown ? " is-shown" : ""}`}
+                  aria-label="Show details"
+                  aria-hidden={!infoShown}
+                  tabIndex={infoShown ? 0 : -1}
+                  onClick={openDetails}
+                >
+                  i
+                </button>
+              )}
+              {expanded && (
+                <button
+                  type="button"
+                  className="bccns-siri-dismiss-btn"
+                  aria-label="Close details"
+                  onClick={clearCurrent}
+                >
+                  ×
+                </button>
+              )}
+            </span>
           )}
           <span className="bccns-siri-wave" aria-hidden="true">
             <i />

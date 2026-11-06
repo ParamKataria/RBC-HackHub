@@ -318,7 +318,7 @@
   font-weight: 500;
   color: var(--bccns-ink);
   padding: 0;
-  transition: opacity 0.35s ease;
+  transition: opacity 0.55s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .bccns-siri input.is-clearing {
@@ -356,8 +356,19 @@
   opacity: 1;
 }
 
-.bccns-siri-dismiss-btn {
+.bccns-siri-trail {
+  display: grid;
   flex: none;
+  width: 22px;
+  height: 22px;
+}
+
+.bccns-siri-trail > * {
+  grid-area: 1 / 1;
+  place-self: center;
+}
+
+.bccns-siri-dismiss-btn {
   width: 16px;
   height: 16px;
   padding: 0;
@@ -367,6 +378,55 @@
   font-size: 16px;
   line-height: 1;
   cursor: pointer;
+  animation: bccnsFade 0.4s ease 0.2s both;
+}
+
+.bccns-siri-info {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: var(--bccns-ochre);
+  color: var(--bccns-paper);
+  font-family: var(--font-bccns-serif), Georgia, serif;
+  font-style: italic;
+  font-weight: 700;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.45s ease;
+  animation: bccnsInfoPulse 2.6s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+}
+
+.bccns-siri-info.is-shown {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+@keyframes bccnsFade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes bccnsInfoPulse {
+  0%,
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--bccns-ochre) 28%, transparent);
+  }
+  50% {
+    transform: scale(1.06);
+    box-shadow: 0 0 0 8px color-mix(in srgb, var(--bccns-ochre) 0%, transparent);
+  }
 }
 
 .bccns-siri-wave i {
@@ -431,10 +491,27 @@
 
 .bccns-siri-swap > * {
   grid-area: 1 / 1;
-  transition: opacity 0.45s ease;
 }
 
-.bccns-siri-swap > .is-out {
+.bccns-siri-glance,
+.bccns-siri-answer-block {
+  opacity: 0;
+  transition: opacity 0.4s ease;
+}
+
+.bccns-siri.is-expanded.is-text .bccns-siri-glance,
+.bccns-siri.is-expanded.is-text .bccns-siri-answer-block {
+  opacity: 1;
+  transition: opacity 0.55s ease;
+}
+
+@starting-style {
+  .bccns-siri.is-expanded.is-text .bccns-siri-answer-block {
+    opacity: 0;
+  }
+}
+
+.bccns-siri.is-expanded.is-text .bccns-siri-glance.is-out {
   position: absolute;
   left: 0;
   right: 0;
@@ -483,7 +560,6 @@
   font-weight: 500;
   line-height: 1.4;
   color: var(--bccns-ink);
-  animation: bccnsSiriRise 0.55s cubic-bezier(0.32, 0.72, 0, 1) both;
 }
 
 .bccns-siri-sources {
@@ -523,22 +599,15 @@
   }
 }
 
-@keyframes bccnsSiriRise {
-  from {
-    opacity: 0;
-    transform: translateY(8px);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
-
 @media (prefers-reduced-motion: reduce) {
   .bccns-siri,
   .bccns-siri-body,
   .bccns-siri-icon,
+  .bccns-siri-info,
+  .bccns-siri-dismiss-btn,
   .bccns-siri-wave,
+  .bccns-siri-glance,
+  .bccns-siri-answer-block,
   .bccns-siri-answer {
     animation: none;
     transition: none;
