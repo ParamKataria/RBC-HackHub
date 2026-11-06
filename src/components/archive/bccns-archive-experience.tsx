@@ -82,9 +82,9 @@ function portalStepDelta(fromRad: number, direction: 1 | -1): number {
 }
 
 /**
- * SOURCE OF TRUTH KEYWORDS: coastStationX, roomTargetX, picture lock-on, momentum
- * WHAT: Settles the gallery walk on the station the camera has reached, and finishes the single step it has already left.
- * WHY: A fast scroll onto board 3 or 4 must stay there. A short step still completes, and a long step must not rewind to the board after the start.
+ * SOURCE OF TRUTH KEYWORDS: coastStationX, roomTargetX, picture lock-on, exit arches
+ * WHAT: Settles the gallery walk on the station the camera has reached, or on the exit arches once the last board is behind it.
+ * WHY: A fast scroll must stay on the board it reached. Passing the last board should hold the camera in front of the exit arches instead of rewinding.
  * WHERE: The gallery animation loop.
  */
 function coastStationX(
@@ -101,6 +101,11 @@ function coastStationX(
   const stops = Array.from({ length: count }, (_, index) => viewX(index));
   if (stops.length === 0) return THREE.MathUtils.clamp(fromX, minX, maxX);
 
+  // Same distance that counts as a real step. The dolly ends in front of the exit arches.
+  const commit = 0.9;
+  const lastPicture = stops[stops.length - 1];
+  if (maxX > lastPicture + commit) stops.push(maxX);
+
   let nearest = 0;
   let nearestDist = Infinity;
   for (let index = 0; index < stops.length; index += 1) {
@@ -110,11 +115,8 @@ function coastStationX(
       nearest = index;
     }
   }
-  if (Math.abs(travel) <= 0.9) return stops[nearest];
+  if (Math.abs(travel) <= commit) return stops[nearest];
 
-  // Same distance that counts as a real step. Leaving a station by this much
-  // finishes that step, including when the camera is still short of halfway.
-  const commit = 0.9;
   const direction = travel > 0 ? 1 : -1;
   let reached = direction > 0 ? 0 : stops.length - 1;
 
