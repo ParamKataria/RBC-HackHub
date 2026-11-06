@@ -388,7 +388,16 @@ function claimLines(
   for (const claim of claims) {
     const requested = [...new Set(claim.recordIds.map((id) => id.trim().toLowerCase()))];
     const resolved = requested.map((id) => idsByLower.get(id));
-    if (requested.length === 0 || resolved.some((id) => !id)) {
+    if (requested.length === 0) {
+      const strayIds = claim.text.match(RECORD_ID_PATTERN) ?? [];
+      if (strayIds.some((id) => !idsByLower.has(id.toLowerCase()))) {
+        continue;
+      }
+      const bare = claim.text.replace(RECORD_ID_PATTERN, " ").replace(/\s+/g, " ").trim();
+      if (bare) lines.push(bare);
+      continue;
+    }
+    if (resolved.some((id) => !id)) {
       continue;
     }
     const mentioned = claim.text.match(RECORD_ID_PATTERN) ?? [];
@@ -701,7 +710,7 @@ export async function askArchive(question: string, view?: AskView): Promise<AskR
   const body =
     lines.length > 0
       ? lines.join("\n\n")
-      : "No model summary was kept. The sources below are the matching records.";
+      : "These records do not answer that. The matching records are listed below.";
   const summary = `${lead}\n\n${body}\n\nSources:\n${sourceBlock(records)}`;
 
   return askResponseSchema.parse({

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 
 import {
   askErrorSchema,
@@ -32,10 +32,10 @@ function shortAskAnswer(summary: string): string {
 }
 
 /**
- * SOURCE OF TRUTH KEYWORDS: ArchiveAsk, /api/ask, askQuestionSchema, siriMorph
- * WHAT: Header question field that morphs from a glass pill into a short cited answer.
- * WHY: Typing must not call the model. The same surface thinks, then expands, the way Siri does on the Mac.
- * WHERE: BccnsArchiveExperience top bar.
+ * SOURCE OF TRUTH KEYWORDS: citationHref, AskCitation, catalog link
+ * WHAT: Builds the link for a cited record, preferring the in-archive deep link.
+ * WHY: Catalog ids and collection records do not share one URL shape.
+ * WHERE: ArchiveAsk answer sources.
  */
 function citationHref(citation: AskCitation): string {
   const isCatalogId = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
@@ -47,33 +47,59 @@ function citationHref(citation: AskCitation): string {
   return `/catalog/${citation.id}`;
 }
 
+export interface ArchiveGlance {
+  id: string;
+  kicker: string;
+  title: string;
+  body: string;
+}
+
+interface ThreadAnswer {
+  id: string;
+  result: AskResponse | null;
+  error: string | null;
+  pending: boolean;
+}
+
+/**
+ * SOURCE OF TRUTH KEYWORDS: ArchiveAsk, settled glance, spring expand, search stays on top
+ * WHAT: Header question field that drops open with a short note once a door or record has settled.
+ * WHY: The note replaces the context chip. The input stays the first row so a question can still be asked about what is in view.
+ * WHERE: BccnsArchiveExperience top bar.
+ */
 export function ArchiveAsk({
   view,
-  onClearView,
+  glance,
 }: {
-  view: (AskView & { label: string }) | null;
-  onClearView: () => void;
+  view: AskView | null;
+  glance: ArchiveGlance | null;
 }) {
   const [question, setQuestion] = useState("");
   const [focused, setFocused] = useState(false);
-  const [open, setOpen] = useState(false);
-  const [pending, setPending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<AskResponse | null>(null);
+  const [clearingQuestion, setClearingQuestion] = useState(false);
+  const submittedQuestionRef = useRef(false);
+  const [answers, setAnswers] = useState<ThreadAnswer[]>([]);
+  const [hiddenGlanceId, setHiddenGlanceId] = useState<string | null>(null);
+  const [closing, setClosing] = useState(false);
+  const closingTargetRef = useRef<{ clearAnswers: boolean; glanceId: string | null } | null>(null);
 
   const ask = async (rawQuestion: string) => {
     const parsedQuestion = askQuestionSchema.safeParse({ question: rawQuestion });
+    const id = crypto.randomUUID();
     if (!parsedQuestion.success) {
-      setResult(null);
-      setError(parsedQuestion.error.issues[0]?.message ?? "Enter a question");
-      setOpen(true);
+      setAnswers((prev) => [
+        ...prev,
+        {
+          id,
+          result: null,
+          error: parsedQuestion.error.issues[0]?.message ?? "Enter a question",
+          pending: false,
+        },
+      ]);
       return;
     }
 
-    setOpen(true);
-    setPending(true);
-    setError(null);
-    setResult(null);
+    setAnswers((prev) => [...prev, { id, result: null, error: null, pending: true }]);
     try {
       const response = await fetch("/api/ask", {
         method: "POST",
@@ -92,34 +118,111 @@ export function ArchiveAsk({
       const payload: unknown = await response.json();
       if (!response.ok) {
         const parsedError = askErrorSchema.safeParse(payload);
-        setError(parsedError.success ? parsedError.data.error : "Ask failed");
+        const message = parsedError.success ? parsedError.data.error : "Ask failed";
+        setAnswers((prev) =>
+          prev.map((item) =>
+            item.id === id ? { ...item, pending: false, error: message } : item,
+          ),
+        );
         return;
       }
       const parsed = askResponseSchema.safeParse(payload);
       if (!parsed.success) {
-        setError("Ask failed");
+        setAnswers((prev) =>
+          prev.map((item) =>
+            item.id === id ? { ...item, pending: false, error: "Ask failed" } : item,
+          ),
+        );
         return;
       }
-      setResult(parsed.data);
+      setAnswers((prev) =>
+        prev.map((item) =>
+          item.id === id ? { ...item, pending: false, result: parsed.data } : item,
+        ),
+      );
     } catch {
-      setError("Ask failed");
-    } finally {
-      setPending(false);
+      setAnswers((prev) =>
+        prev.map((item) =>
+          item.id === id ? { ...item, pending: false, error: "Ask failed" } : item,
+        ),
+      );
     }
   };
 
   const onSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    void ask(question);
+    const asked = question;
+    if (!askQuestionSchema.safeParse({ question: asked }).success) {
+      void ask(asked);
+      return;
+    }
+    submittedQuestionRef.current = true;
+    void ask(asked);
   };
 
-  const close = () => setOpen(false);
-  const revealed = open && !pending && (result !== null || error !== null);
-  const citations: AskCitation[] = result?.citations.slice(0, 4) ?? [];
+  const [heldGlance, setHeldGlance] = useState(glance);
+  const [glanceOpen, setGlanceOpen] = useState(Boolean(glance));
+
+  useEffect(() => {
+    if (!glance) {
+      setGlanceOpen(false);
+      return;
+    }
+    if (hiddenGlanceId === glance.id) {
+      setHeldGlance(glance);
+      setGlanceOpen(false);
+      return;
+    }
+    setHeldGlance(glance);
+    setGlanceOpen(true);
+  }, [glance, hiddenGlanceId]);
+
+  useEffect(() => {
+    if (glanceOpen || !heldGlance) return;
+    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const timer = window.setTimeout(() => setHeldGlance(null), reduceMotion ? 0 : 760);
+    return () => window.clearTimeout(timer);
+  }, [glanceOpen, heldGlance]);
+
+  const pending = answers.some((item) => item.pending);
+  const shownAnswer = [...answers].reverse().find((item) => !item.pending && (item.result || item.error)) ?? null;
+  const glanceDismissed = hiddenGlanceId !== null && hiddenGlanceId === (glance?.id ?? heldGlance?.id ?? null);
+
+  const clearCurrent = () => {
+    if (closing) return;
+    const contextAvailable = glance !== null && hiddenGlanceId !== glance.id;
+    if (shownAnswer && contextAvailable) {
+      setAnswers([]);
+      return;
+    }
+    closingTargetRef.current = {
+      clearAnswers: shownAnswer !== null,
+      glanceId: glance?.id ?? heldGlance?.id ?? null,
+    };
+    setClosing(true);
+  };
+
+  useEffect(() => {
+    if (!closing) return;
+    const target = closingTargetRef.current;
+    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const timer = window.setTimeout(() => {
+      if (target?.clearAnswers) setAnswers([]);
+      if (target?.glanceId) setHiddenGlanceId(target.glanceId);
+      setClosing(false);
+    }, reduceMotion ? 0 : 760);
+    return () => window.clearTimeout(timer);
+  }, [closing]);
+
+  const revealed = shownAnswer !== null;
+  const showGlance = Boolean(heldGlance) && !glanceDismissed;
+  const expanded = !closing && ((glanceOpen && !glanceDismissed) || revealed);
+  const citations: AskCitation[] = shownAnswer?.result?.citations.slice(0, 4) ?? [];
   const surfaceClass = [
     "bccns-siri",
     focused ? "is-focused" : "",
     pending ? "is-pending" : "",
+    expanded ? "is-expanded" : "",
     revealed ? "is-open" : "",
   ]
     .filter((name) => name.length > 0)
@@ -127,9 +230,6 @@ export function ArchiveAsk({
 
   return (
     <div className="bccns-header-search">
-      {open && (
-        <button type="button" className="bccns-siri-backdrop" aria-label="Close" onClick={close} />
-      )}
       <div className={surfaceClass} role={revealed ? "dialog" : undefined} aria-label="Archive answer">
         <span className="bccns-siri-rim" aria-hidden="true" />
         <form onSubmit={onSubmit}>
@@ -148,26 +248,39 @@ export function ArchiveAsk({
                   : "Ask the archive"
             }
             aria-label="Ask the archive"
-            aria-describedby={view ? "archiveAskView" : undefined}
-            aria-expanded={revealed}
+            aria-expanded={expanded}
             autoComplete="off"
+            className={clearingQuestion ? "is-clearing" : undefined}
             value={question}
             onChange={(event) => setQuestion(event.target.value)}
-            onFocus={() => setFocused(true)}
-            onBlur={() => setFocused(false)}
-            onKeyDown={(event) => {
-              if (event.key === "Escape") close();
+            onFocus={() => {
+              setFocused(true);
+              if (!submittedQuestionRef.current || !question || clearingQuestion) return;
+              const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+              if (reduceMotion) {
+                submittedQuestionRef.current = false;
+                setQuestion("");
+                return;
+              }
+              setClearingQuestion(true);
             }}
+            onTransitionEnd={(event) => {
+              if (event.propertyName !== "opacity" || !clearingQuestion) return;
+              submittedQuestionRef.current = false;
+              setQuestion("");
+              setClearingQuestion(false);
+            }}
+            onBlur={() => setFocused(false)}
           />
-          {view && (
-            <span className="bccns-siri-view" id="archiveAskView" title={view.label}>
-              <span key={`${view.scope}:${view.label}`} className="bccns-siri-view-label">
-                {view.label}
-              </span>
-              <button type="button" aria-label="Ask about the whole archive" onClick={onClearView}>
-                ×
-              </button>
-            </span>
+          {expanded && (
+            <button
+              type="button"
+              className="bccns-siri-dismiss-btn"
+              aria-label="Clear context"
+              onClick={clearCurrent}
+            >
+              ×
+            </button>
           )}
           <span className="bccns-siri-wave" aria-hidden="true">
             <i />
@@ -179,21 +292,40 @@ export function ArchiveAsk({
         </form>
         <div className="bccns-siri-body">
           <div className="bccns-siri-body-inner">
-            {error && <p className="bccns-siri-answer">{error}</p>}
-            {result && (
-              <>
-                <p className="bccns-siri-answer">{shortAskAnswer(result.summary)}</p>
-                {citations.length > 0 && (
-                  <ul className="bccns-siri-sources">
-                    {citations.map((citation) => (
-                      <li key={citation.id}>
-                        <Link href={citationHref(citation)}>{citation.title}</Link>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </>
-            )}
+            <div className="bccns-siri-swap">
+              {showGlance && heldGlance && (
+                <div
+                  key={heldGlance.id}
+                  className={`bccns-siri-glance ${revealed ? "is-out" : ""}`}
+                  aria-hidden={revealed}
+                >
+                  <h2 className="bccns-siri-glance-title">
+                    {heldGlance.title}
+                    <span className="bccns-siri-kicker">{heldGlance.kicker}</span>
+                  </h2>
+                  <p className="bccns-siri-glance-body">{heldGlance.body}</p>
+                </div>
+              )}
+              {shownAnswer && (
+                <div key={shownAnswer.id} className="bccns-siri-answer-block">
+                  {shownAnswer.error && <p className="bccns-siri-answer">{shownAnswer.error}</p>}
+                  {shownAnswer.result && (
+                    <>
+                      <p className="bccns-siri-answer">{shortAskAnswer(shownAnswer.result.summary)}</p>
+                      {citations.length > 0 && (
+                        <ul className="bccns-siri-sources">
+                          {citations.map((citation) => (
+                            <li key={citation.id}>
+                              <Link href={citationHref(citation)}>{citation.title}</Link>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>
