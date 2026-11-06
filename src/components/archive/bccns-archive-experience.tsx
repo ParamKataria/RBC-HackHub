@@ -1000,6 +1000,11 @@ export function BccnsArchiveExperience({
 
     syncDeepLinkUrl("hall");
 
+    // The latch still holds the unwrapped heading from before the hallway.
+    // Chasing it spins the rotunda through every arch on the way back.
+    st.hallTravel = 0;
+    st.hallLatch = null;
+    st.rotationSpeed = 0;
     st.currentRotY = THREE.MathUtils.degToRad(cfg.angleDeg);
     st.targetRotY = st.currentRotY;
     st.activePortalId = cfg.id;
@@ -1546,7 +1551,13 @@ export function BccnsArchiveExperience({
             st.hallTravel = 0;
           }
           const pull = 1 - Math.exp(-2.8 * dt);
-          st.targetRotY += (st.hallLatch - st.targetRotY) * pull;
+          const gap = THREE.MathUtils.degToRad(
+            shortestAngleDiffDeg(
+              THREE.MathUtils.radToDeg(st.targetRotY),
+              THREE.MathUtils.radToDeg(st.hallLatch),
+            ),
+          );
+          st.targetRotY += gap * pull;
         }
         if (Math.abs(diff) > 1e-4) {
           st.rotationSpeed = Math.min(st.rotationSpeed + 0.3 * dt, 0.12);
