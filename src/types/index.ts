@@ -29,3 +29,35 @@ export type { SearchQuery, SearchResponse } from "./search";
 
 export { askQuestionSchema, askResponseSchema, noArchiveSourceMessage } from "./ask";
 export type { AskCitation, AskQuestion, AskResponse } from "./ask";
+
+export {
+  archiveCollectionSchema,
+  archiveFilterSchema,
+  archiveImageProxyQuerySchema,
+  archivePayloadSchema,
+  archiveStationSchema,
+  collectionKeySchema,
+  collectionKeyValues,
+} from "./museum";
+export type {
+  AppMode,
+  ArchiveCollection,
+  ArchiveFilter,
+  ArchiveImageProxyQuery,
+  ArchivePayload,
+  ArchiveStation,
+  CameraFaderController,
+  CollectionKey,
+  CollectionVoice,
+  LoadedHallTextures,
+  MuseumRoomBuildResult,
+  PortalConfig,
+  PortalEnergyController,
+  PortalLightsController,
+  PortalPreviewController,
+  RoomConfigMetrics,
+  RoomLimitConfig,
+  RoomPortalTheme,
+  StationPictureShaderController,
+} from "./museum";
+

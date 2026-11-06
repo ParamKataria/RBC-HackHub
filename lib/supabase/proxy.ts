@@ -47,9 +47,12 @@ export async function updateSession(request: NextRequest) {
   const { data } = await supabase.auth.getClaims();
   const user = data?.claims;
 
-  // Catalog pages and /api/search are public reads. RLS already limits them to SELECT.
+  // Catalog pages, museum archive routes, and /api/search are public reads. RLS already limits them to SELECT.
   const isPublicRead =
     request.nextUrl.pathname.startsWith("/catalog") ||
+    request.nextUrl.pathname.startsWith("/museum") ||
+    request.nextUrl.pathname === "/api/archive" ||
+    request.nextUrl.pathname === "/api/image-proxy" ||
     request.nextUrl.pathname === "/api/search" ||
     request.nextUrl.pathname === "/api/ask";
 
