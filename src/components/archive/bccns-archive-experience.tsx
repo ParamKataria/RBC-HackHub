@@ -82,15 +82,14 @@ function portalStepDelta(fromRad: number, direction: 1 | -1): number {
 }
 
 /**
- * SOURCE OF TRUTH KEYWORDS: coastStationX, roomTargetX, picture lock-on, momentum
- * WHAT: Picks the picture to settle on, continuing forward when the walk has already left the previous one.
- * WHY: Stopping short of the halfway point should finish the move, not fall back.
+ * SOURCE OF TRUTH KEYWORDS: coastStationX, roomTargetX, picture lock-on, exit arches
+ * WHAT: Settles the gallery walk on the station the camera has reached, or on the exit arches once the last board is behind it.
+ * WHY: A fast scroll must stay on the board it reached. Passing the last board should hold the camera in front of the exit arches instead of rewinding.
  * WHERE: The gallery animation loop.
  */
 function coastStationX(
   fromX: number,
   travel: number,
-  gestureStart: number,
   minX: number,
   maxX: number,
   roomConfig: RoomConfigMetrics | null,
@@ -100,26 +99,44 @@ function coastStationX(
   const viewX = (index: number) =>
     minX + (archiveEffects.getMarkerPercentage(index, roomConfig) / 100) * span;
   const stops = Array.from({ length: count }, (_, index) => viewX(index));
-  let nearest = fromX;
+  if (stops.length === 0) return THREE.MathUtils.clamp(fromX, minX, maxX);
+
+  // Same distance that counts as a real step. The dolly ends in front of the exit arches.
+  const commit = 0.9;
+  const lastPicture = stops[stops.length - 1];
+  if (maxX > lastPicture + commit) stops.push(maxX);
+
+  let nearest = 0;
   let nearestDist = Infinity;
-  for (const stop of stops) {
-    const dist = Math.abs(stop - fromX);
+  for (let index = 0; index < stops.length; index += 1) {
+    const dist = Math.abs(stops[index] - fromX);
     if (dist < nearestDist) {
       nearestDist = dist;
-      nearest = stop;
+      nearest = index;
     }
   }
-  if (Math.abs(travel) <= 0.9 || stops.length === 0) return nearest;
-  let origin = -1;
-  for (let index = 0; index < stops.length; index += 1) {
-    if (stops[index] <= gestureStart + 0.25) origin = index;
+  if (Math.abs(travel) <= commit) return stops[nearest];
+
+  const direction = travel > 0 ? 1 : -1;
+  let reached = direction > 0 ? 0 : stops.length - 1;
+
+  if (direction > 0) {
+    for (let index = 0; index < stops.length; index += 1) {
+      if (fromX + 0.05 >= stops[index]) reached = index;
+    }
+    if (reached < stops.length - 1 && fromX > stops[reached] + commit) {
+      reached += 1;
+    }
+  } else {
+    for (let index = stops.length - 1; index >= 0; index -= 1) {
+      if (fromX - 0.05 <= stops[index]) reached = index;
+    }
+    if (reached > 0 && fromX < stops[reached] - commit) {
+      reached -= 1;
+    }
   }
-  if (travel > 0) {
-    const dest = origin + 1;
-    return stops[Math.min(Math.max(dest, 0), stops.length - 1)];
-  }
-  const dest = origin < 0 ? 0 : origin - 1;
-  return stops[Math.max(dest, 0)];
+
+  return stops[reached];
 }
 
 /**
@@ -382,7 +399,6 @@ export function BccnsArchiveExperience({
     roomTargetLookRotY: number;
     hallTravel: number;
     roomTravel: number;
-    roomGestureStart: number;
     hallLatch: number | null;
     roomLatch: number | null;
     hoveredPortalCfg: PortalConfig | null;
@@ -430,7 +446,6 @@ export function BccnsArchiveExperience({
     roomTargetLookRotY: 0,
     hallTravel: 0,
     roomTravel: 0,
-    roomGestureStart: -50.1,
     hallLatch: null,
     roomLatch: null,
     hoveredPortalCfg: null,
@@ -503,7 +518,6 @@ export function BccnsArchiveExperience({
     const span = Math.max(0.001, st.roomMaxX - st.roomMinX);
     st.roomTargetX = st.roomMinX + (clamped / 100) * span;
     st.roomTravel = 0;
-    st.roomGestureStart = st.roomTargetX;
     st.roomLatch = null;
     st.roomProgress = clamped;
     setRoomProgress(clamped);
@@ -897,7 +911,6 @@ export function BccnsArchiveExperience({
     st.roomTargetX = st.roomMinX;
     st.roomTravel = 0;
     st.roomLatch = null;
-    st.roomGestureStart = st.roomMinX;
     st.roomProgress = 0;
     st.activeStationIndex = 0;
     st.roomLookRotX = 0;
@@ -918,7 +931,6 @@ export function BccnsArchiveExperience({
         const span = st.roomMaxX - st.roomMinX;
         st.roomCurrentX = st.roomMinX + (pct / 100) * span;
         st.roomTargetX = st.roomCurrentX;
-        st.roomGestureStart = st.roomCurrentX;
         st.roomProgress = pct;
         st.activeStationIndex = targetIdx;
         setRoomProgress(pct);
@@ -965,6 +977,11 @@ export function BccnsArchiveExperience({
 
     syncDeepLinkUrl("hall");
 
+    // The latch still holds the unwrapped heading from before the hallway.
+    // Chasing it spins the rotunda through every arch on the way back.
+    st.hallTravel = 0;
+    st.hallLatch = null;
+    st.rotationSpeed = 0;
     st.currentRotY = THREE.MathUtils.degToRad(cfg.angleDeg);
     st.targetRotY = st.currentRotY;
     st.activePortalId = cfg.id;
@@ -1033,7 +1050,6 @@ export function BccnsArchiveExperience({
           st.roomTravel = 0;
           st.roomLatch = null;
           st.roomTargetX = THREE.MathUtils.clamp(viewX(stepped), st.roomMinX, st.roomMaxX);
-          st.roomGestureStart = st.roomTargetX;
         }
       }
     };
@@ -1181,7 +1197,6 @@ export function BccnsArchiveExperience({
           closeWelcomeCard();
         }
         const roomDelta = e.deltaY * 0.012;
-        if (st.roomTravel === 0) st.roomGestureStart = st.roomTargetX;
         st.roomTravel += roomDelta;
         st.roomTargetX = THREE.MathUtils.clamp(
           st.roomTargetX + roomDelta,
@@ -1319,7 +1334,6 @@ export function BccnsArchiveExperience({
             closeWelcomeCard();
           }
           const roomDelta = primaryDelta * 0.045;
-          if (st.roomTravel === 0) st.roomGestureStart = st.roomTargetX;
           st.roomTravel += roomDelta;
           st.roomTargetX = THREE.MathUtils.clamp(
             st.roomTargetX + roomDelta,
@@ -1504,7 +1518,13 @@ export function BccnsArchiveExperience({
             st.hallTravel = 0;
           }
           const pull = 1 - Math.exp(-2.8 * dt);
-          st.targetRotY += (st.hallLatch - st.targetRotY) * pull;
+          const gap = THREE.MathUtils.degToRad(
+            shortestAngleDiffDeg(
+              THREE.MathUtils.radToDeg(st.targetRotY),
+              THREE.MathUtils.radToDeg(st.hallLatch),
+            ),
+          );
+          st.targetRotY += gap * pull;
         }
         if (Math.abs(diff) > 1e-4) {
           st.rotationSpeed = Math.min(st.rotationSpeed + 0.3 * dt, 0.12);
@@ -1562,7 +1582,6 @@ export function BccnsArchiveExperience({
             st.roomLatch = coastStationX(
               st.roomTargetX,
               st.roomTravel,
-              st.roomGestureStart,
               st.roomMinX,
               st.roomMaxX,
               st.currentRoomBuild.roomConfig,
