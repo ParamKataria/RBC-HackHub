@@ -337,14 +337,8 @@ export function BccnsArchiveExperience({
   const scrubberLineRef = useRef<HTMLDivElement | null>(null);
   const scrubberHandleRef = useRef<HTMLDivElement | null>(null);
   const cursorRef = useRef<HTMLDivElement | null>(null);
-  const askViewKeyRef = useRef("");
   const [hallClueHiddenFor, setHallClueHiddenFor] = useState<CollectionKey | null>(null);
-  const [askView, setAskView] = useState<{
-    scope: "room" | "record";
-    collectionKey: CollectionKey;
-    recordId?: string;
-    label: string;
-  } | null>(null);
+  const [recordClueHiddenFor, setRecordClueHiddenFor] = useState<string | null>(null);
 
   const engineRef = useRef<{
     renderer: THREE.WebGLRenderer | null;
@@ -664,8 +658,7 @@ export function BccnsArchiveExperience({
     }
 
     st.appMode = "hall";
-    askViewKeyRef.current = "";
-    setAskView(null);
+    setRecordClueHiddenFor(null);
     setAppMode("hall");
     setWelcomeOpen(false);
     setVoiceOpen(false);
@@ -739,25 +732,7 @@ export function BccnsArchiveExperience({
     st.welcomeOpen = false;
 
     setCurrentCollectionKey(validKey);
-    const linkedStation = options?.initialRecordId
-      ? targetCollection.stations.find((station) => station.id === options.initialRecordId)
-      : undefined;
-    if (linkedStation) {
-      askViewKeyRef.current = `record|${validKey}|${linkedStation.id}`;
-      setAskView({
-        scope: "record",
-        collectionKey: validKey,
-        recordId: linkedStation.id,
-        label: linkedStation.dc_title,
-      });
-    } else {
-      askViewKeyRef.current = `room|${validKey}|`;
-      setAskView({
-        scope: "room",
-        collectionKey: validKey,
-        label: targetCollection.title,
-      });
-    }
+    setRecordClueHiddenFor(null);
     setAppMode("museum");
     setWelcomeOpen(false);
     setVoiceOpen(false);
@@ -1401,16 +1376,6 @@ export function BccnsArchiveExperience({
             .stationData as ArchiveStation;
           document.body.style.cursor = "pointer";
           setCursorInteractive(true);
-          const viewKey = `record|${st.currentCollectionKey}|${station.id}`;
-          if (askViewKeyRef.current !== viewKey) {
-            askViewKeyRef.current = viewKey;
-            setAskView({
-              scope: "record",
-              collectionKey: st.currentCollectionKey,
-              recordId: station.id,
-              label: station.dc_title,
-            });
-          }
           setPortalPromptText(
             `READ RECORD: ${station.dc_title} (${station.display_year})`,
           );
@@ -1750,11 +1715,16 @@ export function BccnsArchiveExperience({
   const activeHallPortal =
     archiveEffects.PORTAL_CONFIGS[activePortalId] ??
     archiveEffects.PORTAL_CONFIGS[0];
-  const roomClue = askView ?? {
-    scope: "room" as const,
-    collectionKey: activeCollection.key,
-    label: activeCollection.title,
-  };
+  const inViewStation = activeStations[activeStationIndex] ?? activeStations[0];
+  const roomClue =
+    inViewStation && recordClueHiddenFor !== inViewStation.id
+      ? {
+          scope: "record" as const,
+          collectionKey: activeCollection.key,
+          recordId: inViewStation.id,
+          label: inViewStation.dc_title,
+        }
+      : null;
   const hallClue =
     hallClueHiddenFor === activeHallPortal.collectionKey
       ? null
@@ -1828,12 +1798,9 @@ export function BccnsArchiveExperience({
           view={askClue}
           onClearView={() => {
             if (appMode === "museum") {
-              askViewKeyRef.current = `room|${currentCollectionKey}|`;
-              setAskView({
-                scope: "room",
-                collectionKey: currentCollectionKey,
-                label: activeCollection.title,
-              });
+              const station =
+                activeStations[activeStationIndex] ?? activeStations[0];
+              setRecordClueHiddenFor(station?.id ?? null);
               return;
             }
             setHallClueHiddenFor(activeHallPortal.collectionKey);
@@ -1841,6 +1808,46 @@ export function BccnsArchiveExperience({
         />
 
         <nav className="bccns-top-actions" aria-label="Archive navigation">
+          <button
+            type="button"
+            className={`bccns-text-link ${mapOpen ? "active" : ""}`}
+            id="collectionMapBtn"
+            onClick={() => setMapOpen((prev) => !prev)}
+          >
+            Map
+          </button>
+          {appMode === "museum" && (
+            <>
+              <button
+                type="button"
+                className={`bccns-text-link ${welcomeOpen ? "active" : ""}`}
+                id="toggleWelcomeCardBtn"
+                onClick={() => {
+                  if (!welcomeOpen) {
+                    engineRef.current.welcomeOpen = true;
+                    setWelcomeOpen(true);
+                    setVoiceOpen(false);
+                  } else {
+                    closeWelcomeCard();
+                  }
+                }}
+              >
+                Chapter
+              </button>
+              <button
+                type="button"
+                className={`bccns-text-link ${voiceOpen ? "active" : ""}`}
+                id="curatorialVoiceBtn"
+                onClick={() => {
+                  engineRef.current.welcomeOpen = false;
+                  setWelcomeOpen(false);
+                  setVoiceOpen((prev) => !prev);
+                }}
+              >
+                Voice
+              </button>
+            </>
+          )}
           {appMode === "museum" && currentHeaderStation && (
             <button
               type="button"
@@ -1992,126 +1999,6 @@ export function BccnsArchiveExperience({
           </div>
         </div>
       </section>
-
-      {/* Bottom Floating Controls */}
-      <footer className="bccns-bottom-controls">
-        <div className="bccns-controls-group">
-          <button
-            type="button"
-            className={`bccns-hairline-pill ${mapOpen ? "active" : ""}`}
-            id="collectionMapBtn"
-            onClick={() => setMapOpen((prev) => !prev)}
-          >
-            <svg
-              width="15"
-              height="15"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.7"
-              aria-hidden="true"
-            >
-              <rect x="3" y="3" width="18" height="18" rx="2" />
-              <line x1="7" y1="8" x2="17" y2="8" />
-              <line x1="7" y1="12" x2="14" y2="12" />
-              <line x1="7" y1="16" x2="11" y2="16" />
-            </svg>
-            <span>{mapOpen ? "CLOSE MAP" : "COLLECTION MAP"}</span>
-          </button>
-
-          {appMode === "hall" && (
-            <button
-              type="button"
-              className="bccns-hairline-pill"
-              id="enterFacingCollectionBtn"
-              onClick={() =>
-                transitionToCollectionRoom(activeHallPortal.collectionKey)
-              }
-            >
-              ENTER {activeHallPortal.title.toUpperCase()}
-            </button>
-          )}
-        </div>
-
-        <div className="bccns-center-indicator">
-          {appMode === "hall" ? (
-            <div className="bccns-scroll-cue">
-              <span>TURN ROTUNDA WITH WHEEL, TOUCH, OR ARROWS</span>
-            </div>
-          ) : (
-            <>
-              <span className="bccns-chapter-label">
-                {activeCollection.chapterTitle}
-              </span>
-              <button
-                type="button"
-                className={`bccns-circle-btn ${welcomeOpen ? "active" : ""}`}
-                id="toggleWelcomeCardBtn"
-                aria-label="Toggle chapter introduction card"
-                title="Chapter Introduction"
-                onClick={() => {
-                  if (!welcomeOpen) {
-                    engineRef.current.welcomeOpen = true;
-                    setWelcomeOpen(true);
-                    setVoiceOpen(false);
-                  } else {
-                    closeWelcomeCard();
-                  }
-                }}
-              >
-                <span
-                  style={{
-                    fontFamily: "var(--font-bccns-serif), Georgia, serif",
-                    fontSize: 19,
-                    fontStyle: "italic",
-                  }}
-                >
-                  i
-                </span>
-              </button>
-            </>
-          )}
-        </div>
-
-        <div className="bccns-controls-group">
-          {appMode === "museum" && (
-            <>
-              <button
-                type="button"
-                className={`bccns-hairline-pill ${voiceOpen ? "active" : ""}`}
-                id="curatorialVoiceBtn"
-                onClick={() => {
-                  engineRef.current.welcomeOpen = false;
-                  setWelcomeOpen(false);
-                  setVoiceOpen((prev) => !prev);
-                }}
-              >
-                CURATORIAL VOICE
-              </button>
-              <button
-                type="button"
-                className="bccns-circle-btn"
-                id="returnRotundaBtn"
-                aria-label="Return to Rotunda Hall"
-                title="Return to Rotunda Hall"
-                onClick={() => returnToRotundaScene()}
-              >
-                <svg
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.7"
-                  aria-hidden="true"
-                >
-                  <path d="M3 10.5L12 3l9 7.5V21a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1v-10.5z" />
-                </svg>
-              </button>
-            </>
-          )}
-        </div>
-      </footer>
 
       {/* Welcome Card (Warm Paper #F3EEE6) */}
       <aside

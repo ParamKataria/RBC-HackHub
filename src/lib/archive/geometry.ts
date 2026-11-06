@@ -838,6 +838,33 @@ function createGreekArchwayMoldingGroup(
   return group;
 }
 
+/**
+ * SOURCE OF TRUTH KEYWORDS: addArchOpeningEdge, dark reveal, chapter fillet, rotunda and gallery
+ * WHAT: Adds the dark inner recess and thin chapter-colored fillet used on every doorway.
+ * WHY: The rotunda and the gallery end arches have to read as the same walnut frame, including the inner edge.
+ * WHERE: buildProceduralHallScene and buildMuseumRoomScene.
+ */
+function addArchOpeningEdge(group: THREE.Group, washHex: number | string): void {
+  const revealMat = new THREE.MeshStandardMaterial({
+    color: 0x2c261f,
+    roughness: 0.86,
+    metalness: 0.02,
+    emissive: 0x1a1612,
+    emissiveIntensity: 0.18,
+  });
+  const filletMat = new THREE.MeshStandardMaterial({
+    color: washHex,
+    roughness: 0.42,
+    metalness: 0.12,
+    emissive: new THREE.Color(washHex),
+    emissiveIntensity: 0.08,
+  });
+  group.add(
+    new THREE.Mesh(createArchBandGeometry(1.72, 1.78, 3.75, 0.18), revealMat),
+    new THREE.Mesh(createArchBandGeometry(1.78, 1.805, 3.75, 0.2), filletMat),
+  );
+}
+
 function createFloorGeometry(): THREE.CircleGeometry {
   const geom = new THREE.CircleGeometry(12.5, 72);
   geom.rotateX(-Math.PI / 2);
@@ -948,25 +975,7 @@ export function buildProceduralHallScene(
     root.add(portalAnchor);
 
     const glowGroup = createGreekArchwayMoldingGroup(cfg.washHex);
-    const revealMat = new THREE.MeshStandardMaterial({
-      color: 0x2c261f,
-      roughness: 0.86,
-      metalness: 0.02,
-      emissive: 0x1a1612,
-      emissiveIntensity: 0.18,
-    });
-    const filletMat = new THREE.MeshStandardMaterial({
-      color: cfg.washHex,
-      roughness: 0.42,
-      metalness: 0.12,
-      emissive: cfg.washHex,
-      emissiveIntensity: 0.08,
-    });
-    // Dark recess so the scan sits inside the opening, then a thin chapter fillet on the inner edge.
-    glowGroup.add(
-      new THREE.Mesh(createArchBandGeometry(1.72, 1.78, 3.75, 0.18), revealMat),
-      new THREE.Mesh(createArchBandGeometry(1.78, 1.805, 3.75, 0.2), filletMat),
-    );
+    addArchOpeningEdge(glowGroup, cfg.washHex);
     seatRotundaArchFrame(glowGroup, wallRadius, 1.12, 0.28);
     glowGroup.name = cfg.glowNode;
     glowGroup.position.set(dirX * wallRadius, 0, dirZ * wallRadius);
@@ -1029,17 +1038,16 @@ function createContactShadowTexture(): THREE.CanvasTexture {
 
 /**
  * SOURCE OF TRUTH KEYWORDS: createTwinArchEndWallGeometry, end of hallway arches, portal_1, portal_2
- * WHAT: Builds the precision twin-arch end wall at x = portalWallX with two open semicircular archways at Z = -2.35 and Z = +2.35 matching the Rotunda arch dimensions.
- * WHY: Guarantees the end-of-hallway arches, Greek mouldings, preview images, and FBM portal energy overlays match the Rotunda entrance arches 1:1.
+ * WHAT: Builds the twin-arch end wall with two openings the same size as the rotunda doors, and plaster shoulders on both sides.
+ * WHY: The gallery doorways use the rotunda arch width. The wall has to be wider than those frames so the walnut sits on plaster instead of meeting the side walls.
  * WHERE: buildMuseumRoomScene.
  */
-function createTwinArchEndWallGeometry(): THREE.ExtrudeGeometry {
-  const halfW = 6.2;
+function createTwinArchEndWallGeometry(halfW: number, archZ: number): THREE.ExtrudeGeometry {
   const wallH = 11.2;
   const archHalfW = 1.78;
   const archSpringY = 3.75;
-  const leftArchZ = -2.35;
-  const rightArchZ = 2.35;
+  const leftArchZ = -archZ;
+  const rightArchZ = archZ;
 
   const shape = new THREE.Shape();
   shape.moveTo(-halfW, 0);
@@ -1103,7 +1111,9 @@ export async function buildMuseumRoomScene({
   const startWallX = minX - 4.2;
   const corridorLen = portalWallX - startWallX;
   const corridorCenterX = (startWallX + portalWallX) * 0.5;
-  const wallZ = 4.35;
+  // Narrower than the first widened hall. End doors stay the rotunda opening (half-width 1.78, centers at ±2.35) so the frames, holes, and portal washes still meet, with plaster left beside each jamb.
+  const wallZ = 5.15;
+  const archZ = 2.35;
 
   // Materials — plaster and floor in the walnut hue; trim is the same wood, darker.
   const wallMat = new THREE.MeshLambertMaterial({
@@ -1159,7 +1169,7 @@ export async function buildMuseumRoomScene({
   });
 
   // 1. Corridor Floor & Central Exhibition Runner Border
-  const floorGeom = new THREE.PlaneGeometry(corridorLen + 14, 14);
+  const floorGeom = new THREE.PlaneGeometry(corridorLen + 14, wallZ * 2 + 3);
   floorGeom.rotateX(-Math.PI / 2);
   const floorMesh = new THREE.Mesh(floorGeom, floorMat);
   floorMesh.name = "Floor";
@@ -1194,7 +1204,7 @@ export async function buildMuseumRoomScene({
 
   for (const side of [-1, 1]) {
     const zBase = side * (wallZ - 0.04);
-    const baseboard = new THREE.Mesh(baseboardGeom, plinthMat);
+    const baseboard = new THREE.Mesh(baseboardGeom, walnutTrimMat);
     baseboard.position.set(corridorCenterX, 0.17, zBase);
     root.add(baseboard);
 
@@ -1245,7 +1255,7 @@ export async function buildMuseumRoomScene({
   root.add(backWall);
 
   // 3. End-of-Hallway Twin Arch Portals Wall (portal_1 -> next collection, portal_2 -> previous collection / rotunda)
-  const endWallMesh = new THREE.Mesh(createTwinArchEndWallGeometry(), wallMat);
+  const endWallMesh = new THREE.Mesh(createTwinArchEndWallGeometry(wallZ + 0.5, archZ), wallMat);
   endWallMesh.name = "EndPortalWall";
   endWallMesh.position.set(portalWallX, 0, 0);
   root.add(endWallMesh);
@@ -1260,8 +1270,8 @@ export async function buildMuseumRoomScene({
   chamberBackMesh.position.set(portalWallX + 0.72, 3.4, 0);
   root.add(chamberBackMesh);
 
-  const rightArchZ = 2.35;
-  const leftArchZ = -2.35;
+  const rightArchZ = archZ;
+  const leftArchZ = -archZ;
 
   const portal1Anchor = new THREE.Object3D();
   portal1Anchor.name = "portal_1";
@@ -1274,16 +1284,18 @@ export async function buildMuseumRoomScene({
   root.add(portal2Anchor);
 
   const portal1Glow = createGreekArchwayMoldingGroup(portalTheme.portal1Color);
+  addArchOpeningEdge(portal1Glow, portalTheme.portal1Color);
   portal1Glow.name = "portal_1_glow";
-  portal1Glow.position.set(portalWallX - 0.04, 0, rightArchZ);
+  portal1Glow.position.set(portalWallX - 0.42, 0, rightArchZ);
   // Orient the Greek archway molding to face inward toward the gallery,
   // matching the rotunda entrance arch orientation (rotation.set(0, wallRotY, 0)).
   portal1Glow.rotation.set(0, Math.PI, 0);
   root.add(portal1Glow);
 
   const portal2Glow = createGreekArchwayMoldingGroup(portalTheme.portal2Color);
+  addArchOpeningEdge(portal2Glow, portalTheme.portal2Color);
   portal2Glow.name = "portal_2_glow";
-  portal2Glow.position.set(portalWallX - 0.04, 0, leftArchZ);
+  portal2Glow.position.set(portalWallX - 0.42, 0, leftArchZ);
   portal2Glow.rotation.set(0, Math.PI, 0);
   root.add(portal2Glow);
 
@@ -1418,7 +1430,7 @@ export async function buildMuseumRoomScene({
     const isRightSide = idx % 2 === 0;
     const xPos = +(firstPicX + idx * picStepX).toFixed(3);
     const yPos = 2.42;
-    const zPos = isRightSide ? 2.86 : -2.86;
+    const zPos = (isRightSide ? 1 : -1) * (wallZ - 1.55);
     // Tilt each frame ~30 degrees toward the approaching visitor so all scans are clearly visible upon entering the hallway
     const cantAngleY = isRightSide ? Math.PI + 0.52 : -0.52;
     const normalX = Math.sin(cantAngleY);
