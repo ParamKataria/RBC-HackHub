@@ -1,5 +1,4 @@
 import * as THREE from "three";
-import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { computeRoomConfig, PORTAL_CONFIGS } from "@/src/lib/archive/effects";
 import type {
   ArchiveCollection,
@@ -993,8 +992,6 @@ export interface BuildMuseumRoomOptions {
   roomLimits: RoomLimitConfig;
   portalTheme: RoomPortalTheme;
   textures: LoadedHallTextures;
-  gltfLoader: GLTFLoader;
-  assetsBase?: string;
 }
 
 /**

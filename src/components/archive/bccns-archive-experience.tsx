@@ -3,7 +3,6 @@
 import Link from "next/link";
 import React, { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
-import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { Reflector } from "three/examples/jsm/objects/Reflector.js";
 import { archiveEffects, archiveGeometry } from "@/src/lib/archive";
 import { ArchiveAsk } from "@/src/components/archive/archive-ask";
@@ -353,7 +352,6 @@ export function BccnsArchiveExperience({
     ambientLight: THREE.AmbientLight | null;
     activeCamera: THREE.PerspectiveCamera | null;
     viewNode: THREE.Object3D | null;
-    gltfLoader: GLTFLoader | null;
     textures: LoadedHallTextures | null;
     currentHallRoot: THREE.Group | null;
     currentRoomBuild: MuseumRoomBuildResult | null;
@@ -402,7 +400,6 @@ export function BccnsArchiveExperience({
     ambientLight: null,
     activeCamera: null,
     viewNode: null,
-    gltfLoader: null,
     textures: null,
     currentHallRoot: null,
     currentRoomBuild: null,
@@ -692,7 +689,7 @@ export function BccnsArchiveExperience({
     options?: { skipPreloader?: boolean; initialRecordId?: string | null },
   ) => {
     const st = engineRef.current;
-    if (!st.scene || !st.renderer || !st.gltfLoader || !st.textures) return;
+    if (!st.scene || !st.renderer || !st.textures) return;
     if (st.isTransitioning) return;
 
     const targetCollection =
@@ -781,8 +778,6 @@ export function BccnsArchiveExperience({
       roomLimits: limits,
       portalTheme,
       textures: st.textures,
-      gltfLoader: st.gltfLoader,
-      assetsBase: "/assets",
     });
 
     st.currentRoomBuild = roomBuild;
@@ -1135,8 +1130,6 @@ export function BccnsArchiveExperience({
     st.ambientLight = ambientLight;
     st.activeCamera = fallbackCamera;
     st.viewNode = fallbackView;
-    st.gltfLoader = new GLTFLoader();
-
     let disposed = false;
     let rafId = 0;
 
