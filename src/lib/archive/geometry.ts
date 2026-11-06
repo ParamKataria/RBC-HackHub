@@ -676,7 +676,7 @@ function createArchBandGeometry(
     bevelThickness: 0.06,
     bevelSize: 0.06,
     bevelSegments: 2,
-    curveSegments: 30,
+    curveSegments: 16,
   });
   geom.rotateY(-Math.PI / 2);
   geom.translate(depth / 2, 0, 0);
@@ -1116,7 +1116,7 @@ export function buildProceduralHallScene(
     THREE.MathUtils.radToDeg(0.5483113556160755),
     typeof window !== "undefined" ? window.innerWidth / window.innerHeight : 1.6,
     0.1,
-    34,
+    32,
   );
   camera.name = "Camera";
   camera.position.set(0, 0, 4.5);
@@ -1562,7 +1562,7 @@ export async function buildMuseumRoomScene({
   const rodLength = Math.max(0.45, ceilingLocalY - rodBottom);
   const rodY = rodBottom + rodLength / 2;
 
-  const picGeom = new THREE.PlaneGeometry(imageSize, imageSize, 24, 24);
+  const picGeom = new THREE.PlaneGeometry(imageSize, imageSize, 16, 16);
   const titleGeom = new THREE.PlaneGeometry(titleWidth, titleHeight);
 
   // 4-Bar Mitered Museum Picture Frame geometries & recessed mat board (strictly behind z = 0 so picMesh is never occluded)
@@ -1763,7 +1763,7 @@ export async function buildMuseumRoomScene({
     53.7,
     typeof window !== "undefined" ? window.innerWidth / window.innerHeight : 1.6,
     0.1,
-    100,
+    35,
   );
   camera.name = "Camera";
   camera.position.set(0, 0, 2);
