@@ -1205,7 +1205,7 @@ export function BccnsArchiveExperience({
       if (st.appMode === "hall") {
         hallInputAt = performance.now();
         st.hallLatch = null;
-        const delta = THREE.MathUtils.clamp(e.deltaY * 0.002, -0.1, 0.1);
+        const delta = THREE.MathUtils.clamp(e.deltaY * 0.001, -0.05, 0.05);
         st.hallTravel += delta;
         st.targetRotY += delta;
       } else if (st.appMode === "museum") {
@@ -1214,7 +1214,7 @@ export function BccnsArchiveExperience({
         if (st.welcomeOpen) {
           closeWelcomeCard();
         }
-        const roomDelta = e.deltaY * 0.012;
+        const roomDelta = e.deltaY * 0.006;
         st.roomTravel += roomDelta;
         st.roomTargetX = THREE.MathUtils.clamp(
           st.roomTargetX + roomDelta,
