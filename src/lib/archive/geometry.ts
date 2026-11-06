@@ -1221,12 +1221,6 @@ export async function buildMuseumRoomScene({
     metalness: 0.32,
   });
 
-  const goldTrimMat = new THREE.MeshStandardMaterial({
-    color: 0xc9892d,
-    roughness: 0.32,
-    metalness: 0.42,
-  });
-
   const walnutTrimMat = new THREE.MeshStandardMaterial({
     color: 0x6e4b30,
     roughness: 0.45,
@@ -1511,6 +1505,13 @@ export async function buildMuseumRoomScene({
   const matBottom = vertBottom + 0.02;
   const matHeight = matTop - matBottom;
   const matY = (matTop + matBottom) / 2;
+  const contentBottom = titleCenterY - titleHeight / 2;
+  const contentTop = imageHalf;
+  const contentSpan = Math.max(0.001, contentTop - contentBottom);
+  const pictureLampBase = (-imageHalf - contentBottom) / contentSpan;
+  const pictureLampScale = imageSize / contentSpan;
+  const titleLampScale = titleHeight / contentSpan;
+
   const yPos = 2.98;
   // Same cap as GalleryCeiling. The wire runs from the frame top into that plane.
   const ceilingLocalY = galleryCeilingY - yPos + 0.02;
@@ -1530,8 +1531,17 @@ export async function buildMuseumRoomScene({
   const wireMat = new THREE.MeshBasicMaterial({ color: 0x3a2818 });
   const hangingRodGeom = new THREE.CylinderGeometry(0.015, 0.015, rodLength, 8);
   const ceilingCleatGeom = new THREE.BoxGeometry(0.1, 0.045, 0.1);
-  const pictureLightBarGeom = new THREE.BoxGeometry(1.35, 0.055, 0.24);
+  const pictureLightBarGeom = new THREE.BoxGeometry(1.42, 0.07, 0.22);
   const pictureLightArmGeom = new THREE.BoxGeometry(0.06, 0.06, 0.36);
+  const lampGlowGeom = new THREE.BoxGeometry(1.22, 0.025, 0.14);
+  const lampHousingMat = new THREE.MeshStandardMaterial({
+    color: 0xc9892d,
+    roughness: 0.38,
+    metalness: 0.45,
+    emissive: 0x5a3d12,
+    emissiveIntensity: 0.35,
+  });
+  const lampGlowMat = new THREE.MeshBasicMaterial({ color: 0xfff4d2 });
 
   const shadowGeom = new THREE.PlaneGeometry(3.4, 1.85);
   shadowGeom.rotateX(-Math.PI / 2);
@@ -1577,6 +1587,8 @@ export async function buildMuseumRoomScene({
     picMesh.userData.normalX = normalX;
     picMesh.userData.normalZ = normalZ;
     picMesh.userData.cantAngleY = cantAngleY;
+    picMesh.userData.lampBase = pictureLampBase;
+    picMesh.userData.lampScale = pictureLampScale;
 
     root.add(picMesh);
     pictureMeshes.push(picMesh);
@@ -1606,6 +1618,8 @@ export async function buildMuseumRoomScene({
     titleMesh.userData.stationData = station;
     titleMesh.userData.stationIndex = idx;
     titleMesh.userData.stationPicture = picMesh;
+    titleMesh.userData.lampBase = 0;
+    titleMesh.userData.lampScale = titleLampScale;
     frameGroup.add(titleMesh);
     stationLabelMeshes.push(titleMesh);
 
@@ -1662,14 +1676,28 @@ export async function buildMuseumRoomScene({
       frameGroup.add(cleat);
     }
 
-    // Overhead museum picture light bar & arm
-    const lightBar = new THREE.Mesh(pictureLightBarGeom, goldTrimMat);
-    lightBar.position.set(0, topBarY + 0.18, 0.16);
+    // Picture lamp: brass housing, glowing diffuser, and a spot aimed down the board
+    const lightBar = new THREE.Mesh(pictureLightBarGeom, lampHousingMat);
+    lightBar.position.set(0, topBarY + 0.2, 0.18);
     frameGroup.add(lightBar);
 
+    const lampGlow = new THREE.Mesh(lampGlowGeom, lampGlowMat);
+    lampGlow.position.set(0, topBarY + 0.15, 0.2);
+    frameGroup.add(lampGlow);
+
     const lightArm = new THREE.Mesh(pictureLightArmGeom, plinthMat);
-    lightArm.position.set(0, topBarY + 0.12, 0.0);
+    lightArm.position.set(0, topBarY + 0.14, 0.02);
     frameGroup.add(lightArm);
+
+    const lampTarget = new THREE.Object3D();
+    lampTarget.position.set(0, -0.15, 0.12);
+    frameGroup.add(lampTarget);
+
+    const lamp = new THREE.SpotLight(0xfff1cc, 6, 5.2, 0.78, 0.65, 1.4);
+    lamp.position.set(0, topBarY + 0.16, 0.24);
+    lamp.target = lampTarget;
+    lamp.castShadow = false;
+    frameGroup.add(lamp);
 
     root.add(frameGroup);
 

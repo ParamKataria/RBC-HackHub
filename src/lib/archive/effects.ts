@@ -745,6 +745,9 @@ export function applyPortalPreviewShader(
 export interface StationPictureShaderOptions {
   texture?: THREE.Texture | null;
   accentColor?: number | string;
+  lampBase?: number;
+  lampScale?: number;
+  wave?: boolean;
 }
 
 /**
@@ -758,6 +761,9 @@ export function applyStationPictureShader(
   {
     texture = null,
     accentColor = 0xa85c1a,
+    lampBase = 0,
+    lampScale = 1,
+    wave = true,
   }: StationPictureShaderOptions = {},
 ): StationPictureShaderController {
   const origMat = picMesh.material as THREE.MeshBasicMaterial | undefined;
@@ -772,6 +778,9 @@ export function applyStationPictureShader(
         uTexture: { value: map },
         uTime: { value: 0 },
         uHover: { value: 0 },
+        uWave: { value: wave ? 1 : 0 },
+        uLampBase: { value: lampBase },
+        uLampScale: { value: lampScale },
         uAccentColor: { value: accent },
       },
     ]),
@@ -798,6 +807,9 @@ export function applyStationPictureShader(
       uniform sampler2D uTexture;
       uniform float uTime;
       uniform float uHover;
+      uniform float uWave;
+      uniform float uLampBase;
+      uniform float uLampScale;
       uniform vec3 uAccentColor;
       varying vec2 vUv;
       #include <fog_pars_fragment>
@@ -807,17 +819,25 @@ export function applyStationPictureShader(
         vec2 uv = (vUv - 0.5) * zoom + 0.5;
 
         // Gentle ambient wave that amplifies into a liquid ripple on hover
-        float waveStrength = 0.22 + 1.45 * uHover;
+        float waveStrength = uWave * (0.22 + 1.45 * uHover);
         uv.x += sin(vUv.y * 26.0 + uTime * 2.2) * 0.0024 * waveStrength;
         uv.y += cos(vUv.x * 12.0 + uTime * 1.4) * 0.0028 * waveStrength;
         uv = clamp(uv, 0.004, 0.996);
 
         vec4 texColor = texture2D(uTexture, uv);
 
+        // Picture lamp: brightest under the housing, falling down the board and toward the sides.
+        float along = clamp(uLampBase + vUv.y * uLampScale, 0.0, 1.0);
+        float fromLamp = pow(along, 0.8);
+        float across = 1.0 - pow(abs(vUv.x - 0.5) * 2.0, 1.55) * 0.4;
+        float pool = fromLamp * clamp(across, 0.42, 1.0);
+        float exposure = mix(0.58, 1.28, pool);
+        vec3 warm = vec3(1.0, 0.94, 0.8);
+
         // Warm gallery spotlight illumination + subtle copper-ochre border sheen on hover
         float borderDist = min(min(vUv.x, 1.0 - vUv.x), min(vUv.y, 1.0 - vUv.y));
         float rimSheen = smoothstep(0.055, 0.0, borderDist) * uHover * 0.42;
-        vec3 litColor = texColor.rgb * (1.0 + 0.06 * uHover) + uAccentColor * rimSheen;
+        vec3 litColor = texColor.rgb * exposure + warm * pool * 0.07 + uAccentColor * rimSheen;
 
         gl_FragColor = vec4(litColor, texColor.a);
         // Match MeshBasicMaterial: encode to output color, then fog. Fogging first

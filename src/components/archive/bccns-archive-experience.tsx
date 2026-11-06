@@ -891,16 +891,24 @@ export function BccnsArchiveExperience({
     st.previewControllers.push(pPrevCtrl);
     st.roomPortalMeshes.push(roomBuild.previewPrevMesh);
 
-    // Interactive hover shader on every framed archival station image on the gallery walls
-    for (const picMesh of roomBuild.pictureMeshes) {
-      const mat = picMesh.material;
+    // Picture lamp falloff on the scan and the title, so both share one pool of light.
+    const shadeBoardSurface = (mesh: THREE.Mesh, wave: boolean) => {
+      const mat = mesh.material;
       const first = Array.isArray(mat) ? mat[0] : mat;
       const tex = (first as THREE.MeshBasicMaterial | undefined)?.map ?? null;
-      const picShaderCtrl = archiveEffects.applyStationPictureShader(picMesh, {
+      return archiveEffects.applyStationPictureShader(mesh, {
         texture: tex,
         accentColor: targetCollection.washHex,
+        lampBase: Number(mesh.userData.lampBase ?? 0),
+        lampScale: Number(mesh.userData.lampScale ?? 1),
+        wave,
       });
-      st.stationShaderControllers.push(picShaderCtrl);
+    };
+    for (const picMesh of roomBuild.pictureMeshes) {
+      st.stationShaderControllers.push(shadeBoardSurface(picMesh, true));
+    }
+    for (const labelMesh of roomBuild.stationLabelMeshes) {
+      shadeBoardSurface(labelMesh, false);
     }
 
     st.viewNode = roomBuild.viewNode;
