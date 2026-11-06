@@ -351,8 +351,6 @@ export function BccnsArchiveExperience({
   // --- DOM & Mutable Engine Refs ---
   const mountRef = useRef<HTMLDivElement | null>(null);
   const scrubberTrackRef = useRef<HTMLDivElement | null>(null);
-  const scrubberLineRef = useRef<HTMLDivElement | null>(null);
-  const scrubberHandleRef = useRef<HTMLDivElement | null>(null);
   const cursorRef = useRef<HTMLDivElement | null>(null);
   const [hallClueHiddenFor, setHallClueHiddenFor] = useState<CollectionKey | null>(null);
   const [recordClueHiddenFor, setRecordClueHiddenFor] = useState<string | null>(null);
@@ -1611,15 +1609,6 @@ export function BccnsArchiveExperience({
           Math.min(100, ((st.roomCurrentX - st.roomMinX) / span) * 100),
         );
 
-        // Update scrubber visuals directly from live camera position — avoids
-        // the React state deadband (0.05%) that made the ball lag then snap.
-        if (scrubberLineRef.current) {
-          scrubberLineRef.current.style.setProperty("--walk-progress", `${pct}%`);
-        }
-        if (scrubberHandleRef.current) {
-          scrubberHandleRef.current.style.left = `${pct}%`;
-        }
-
         if (Math.abs(pct - st.roomProgress) > 0.05) {
           st.roomProgress = pct;
           setRoomProgress(pct);
@@ -1966,18 +1955,7 @@ export function BccnsArchiveExperience({
             }
           }}
         >
-          <div
-            ref={scrubberLineRef}
-            className="bccns-scrubber-line"
-            style={
-              { "--walk-progress": `${roomProgress}%` } as React.CSSProperties
-            }
-          />
-          <div
-            ref={scrubberHandleRef}
-            className="bccns-scrubber-handle"
-            style={{ left: `${roomProgress}%` }}
-          />
+          <div className="bccns-scrubber-line" />
           <div>
             {activeStations.map((station, idx) => {
               const cfgOrLen = activeRoomConfig ?? activeStations.length;
