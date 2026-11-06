@@ -12,6 +12,15 @@ Established: 2026-11-05. Source: starter scaffolding + user answers (Elegant/edi
 - Button label color: white — contrast vs Primary: 5.00 (from scripts/check_contrast.py; verified white is readable on #936362)
 - Dark mode: not needed for this project — single mode only (locked light mode, warm paper theme)
 
+## Architectural materials
+Source: extracted from the walnut-rotunda screenshot (dominant plaster hue 34°) plus the user's request to stop the floor, walls, and frames reading as three unrelated colors. UI chrome above stays on the locked palette. The 3D room uses one hue: light plaster, a deeper floor of that same hue, and walnut as the only dark material.
+- Plaster / fog / clear: #E8D9C8 (walls and atmosphere)
+- Floor: #D2C0A8 (same hue, one step deeper)
+- Platform: #DCCBB4
+- Door frames: walnut grain, kept
+- Gallery plinths and picture frames: #4A3224 and #5C3D28 (darker walnut, not a separate black)
+- Chapter washes stay on record labels and the thin inner arch line only
+
 ## Color contract
 
 The palette above is not a set of five approved hexes the model may combine freely. It is a contract: for each pairing of colors, a required contrast ratio.

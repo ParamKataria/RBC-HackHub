@@ -477,30 +477,83 @@ export async function loadHallTextures(
   return { noise, platform, floor, rotundaPreview, previewsByCollection };
 }
 
-function createWallSegmentGeometry(halfW = 5.45): THREE.ExtrudeGeometry {
+/**
+ * SOURCE OF TRUTH KEYWORDS: createContinuousRotundaWall, seamless plaster, six doorways, one shell
+ * WHAT: Builds the rotunda plaster as one circular shell with six arch openings.
+ * WHY: Six overlapping wall panels meet on a diagonal and catch the light as seams. One mesh has no joint to shadow.
+ * WHERE: buildProceduralHallScene.
+ */
+function createContinuousRotundaWall(
+  radius: number,
+  portalAnglesDeg: number[],
+): THREE.BufferGeometry {
+  const innerR = radius - 0.24;
+  const outerR = radius + 0.24;
   const wallH = 12.6142;
-  const archHalfW = 1.78;
-  const archSpringY = 3.75;
+  const archHalf = 1.78;
+  const spring = 3.75;
+  const columns = 360;
+  const rows = 22;
+  const centers = portalAnglesDeg.map((deg) => THREE.MathUtils.degToRad(deg));
 
-  // Single U-shaped wall profile with open doorway down to y = 0 (prevents any bottom curb clipping)
-  const wallShape = new THREE.Shape();
-  wallShape.moveTo(-halfW, 0);
-  wallShape.lineTo(-archHalfW, 0);
-  wallShape.lineTo(-archHalfW, archSpringY);
-  wallShape.absarc(0, archSpringY, archHalfW, Math.PI, 0, true);
-  wallShape.lineTo(archHalfW, 0);
-  wallShape.lineTo(halfW, 0);
-  wallShape.lineTo(halfW, wallH);
-  wallShape.lineTo(-halfW, wallH);
-  wallShape.closePath();
+  const openingTop = (phi: number): number => {
+    let top = 0;
+    for (const center of centers) {
+      const dPhi = Math.atan2(Math.sin(phi - center), Math.cos(phi - center));
+      const az = Math.abs(dPhi) * radius;
+      if (az >= archHalf) continue;
+      top = Math.max(top, spring + Math.sqrt(archHalf * archHalf - az * az));
+    }
+    return top;
+  };
 
-  const geom = new THREE.ExtrudeGeometry(wallShape, {
-    depth: 0.48,
-    bevelEnabled: false,
-    curveSegments: 32,
-  });
-  geom.rotateY(-Math.PI / 2);
-  geom.translate(0.24, 0, 0);
+  const positions: number[] = [];
+  const indices: number[] = [];
+  const stride = rows + 1;
+  const yAt = (col: number, row: number): number => {
+    const phi = (col / columns) * Math.PI * 2;
+    const base = openingTop(phi);
+    return base + (wallH - base) * (row / rows);
+  };
+  const vert = (col: number, row: number) => (col % columns) * stride + row;
+
+  for (let col = 0; col < columns; col++) {
+    const phi = (col / columns) * Math.PI * 2;
+    for (let row = 0; row <= rows; row++) {
+      const y = yAt(col, row);
+      positions.push(-innerR * Math.sin(phi), y, -innerR * Math.cos(phi));
+    }
+  }
+
+  for (let col = 0; col < columns; col++) {
+    for (let row = 0; row < rows; row++) {
+      const a = vert(col, row);
+      const b = vert(col + 1, row);
+      const d = vert(col, row + 1);
+      const e = vert(col + 1, row + 1);
+      indices.push(a, e, b, a, d, e);
+    }
+  }
+
+  const lipStart = positions.length / 3;
+  for (let col = 0; col < columns; col++) {
+    const phi = (col / columns) * Math.PI * 2;
+    const y = yAt(col, 0);
+    positions.push(-outerR * Math.sin(phi), y, -outerR * Math.cos(phi));
+  }
+  for (let col = 0; col < columns; col++) {
+    const next = (col + 1) % columns;
+    if (yAt(col, 0) <= 0.001 && yAt(next, 0) <= 0.001) continue;
+    const innerA = vert(col, 0);
+    const innerB = vert(next, 0);
+    const outerA = lipStart + col;
+    const outerB = lipStart + next;
+    indices.push(innerA, innerB, outerB, innerA, outerB, outerA);
+  }
+
+  const geom = new THREE.BufferGeometry();
+  geom.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+  geom.setIndex(indices);
   geom.computeVertexNormals();
   return geom;
 }
@@ -546,9 +599,9 @@ function createArchBandGeometry(
   const geom = new THREE.ExtrudeGeometry(shape, {
     depth,
     bevelEnabled: true,
-    bevelThickness: 0.10,
-    bevelSize: 0.10,
-    bevelSegments: 3,
+    bevelThickness: 0.06,
+    bevelSize: 0.06,
+    bevelSegments: 2,
     curveSegments: 30,
   });
   geom.rotateY(-Math.PI / 2);
@@ -588,6 +641,84 @@ export function resetGeometryCache(): void {
 }
 
 /**
+ * SOURCE OF TRUTH KEYWORDS: createWoodFinishTexture, walnut grain, door frame, satin varnish
+ * WHAT: Paints a repeating walnut grain used on one Greek archway moulding.
+ * WHY: A flat brown reads as paint. Long grain, pores, and a few knots read as finished wood on both the curved archivolt and the jambs. Each doorway owns its texture so scene disposal cannot hand the next room a freed map.
+ * WHERE: createGreekArchwayMoldingGroup.
+ */
+function createWoodFinishTexture(): THREE.CanvasTexture {
+
+  const width = 128;
+  const height = 512;
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d");
+  if (ctx) {
+    ctx.fillStyle = "#6B4328";
+    ctx.fillRect(0, 0, width, height);
+
+    for (let x = 0; x < width; x++) {
+      const wobble = Math.sin(x * 0.21) * 0.35 + Math.sin(x * 0.07) * 0.2;
+      const band = Math.sin(x * 0.72 + wobble);
+      const fine = Math.sin(x * 2.15);
+      const tone = 0.72 + band * 0.22 + fine * 0.07;
+      const r = Math.round(118 * tone + 36);
+      const g = Math.round(72 * tone + 18);
+      const b = Math.round(38 * tone + 12);
+      ctx.fillStyle = `rgb(${r},${g},${b})`;
+      ctx.fillRect(x, 0, 1, height);
+    }
+
+    ctx.globalAlpha = 0.22;
+    for (let i = 0; i < 36; i++) {
+      const x = (i * 53) % width;
+      const y = (i * 89) % height;
+      ctx.fillStyle = i % 4 === 0 ? "#F0D2A8" : "#3A2414";
+      ctx.fillRect(x, y, i % 4 === 0 ? 1 : 2, 22 + (i % 6) * 10);
+    }
+    ctx.globalAlpha = 1;
+
+    ctx.fillStyle = "#4A2C18";
+    ctx.beginPath();
+    ctx.ellipse(36, 160, 7, 11, 0.4, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#8C6239";
+    ctx.beginPath();
+    ctx.ellipse(36, 160, 3, 5, 0.4, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#3E2616";
+    ctx.beginPath();
+    ctx.ellipse(92, 390, 6, 9, -0.3, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.anisotropy = 8;
+  return tex;
+}
+
+/**
+ * SOURCE OF TRUTH KEYWORDS: applyWoodGrainUVs, door frame grain, local position UVs
+ * WHAT: Replaces mesh UVs so walnut grain runs with the height of each arch piece.
+ * WHY: ExtrudeGeometry UVs stretch one tile across the whole arch. Local Y keeps the grain tight on the jambs and the curved bands.
+ * WHERE: createGreekArchwayMoldingGroup, before the rotunda bend clones the geometry.
+ */
+function applyWoodGrainUVs(geom: THREE.BufferGeometry): void {
+  const pos = geom.attributes.position;
+  if (!(pos instanceof THREE.BufferAttribute)) return;
+  const uvs = new Float32Array(pos.count * 2);
+  for (let i = 0; i < pos.count; i++) {
+    uvs[i * 2] = (pos.getX(i) + pos.getZ(i)) * 2.4;
+    uvs[i * 2 + 1] = pos.getY(i) * 1.15;
+  }
+  geom.setAttribute("uv", new THREE.BufferAttribute(uvs, 2));
+}
+
+/**
  * SOURCE OF TRUTH KEYWORDS: seatRotundaArchFrame, deeper curved archivolt, flush rounded wall
  * WHAT: Thickens a rotunda arch frame and bends it onto the circular wall.
  * WHY: A flat frame leaves a gap against the curved plaster. A deeper rim follows the wall and stays flush.
@@ -622,101 +753,116 @@ function seatRotundaArchFrame(
 }
 
 /**
- * SOURCE OF TRUTH KEYWORDS: createGreekArchwayMoldingGroup, classical Greek moulding, stepped archivolt, keystone
+ * SOURCE OF TRUTH KEYWORDS: createGreekArchwayMoldingGroup, walnut door frame, stepped archivolt, keystone
  * WHAT: Builds a sleek Neoclassical / Greek stepped archway moulding with Attic plinth bases, impost capitals, 3-fascia archivolt, and crown keystone.
- * WHY: Gives both the Rotunda entrance arches and the End-of-Hallway arches identical, refined Greek architectural borders.
+ * WHY: Gives both the Rotunda entrance arches and the End-of-Hallway arches the same finished walnut border.
  * WHERE: buildProceduralHallScene and buildMuseumRoomScene.
  */
 function createGreekArchwayMoldingGroup(
   _accentColor?: number | string,
 ): THREE.Group {
   if (!cachedInnerArchBandGeom) {
-    cachedInnerArchBandGeom = createArchBandGeometry(1.78, 1.805, 3.75, 0.50);
+    cachedInnerArchBandGeom = createArchBandGeometry(1.78, 1.798, 3.75, 0.42);
+    applyWoodGrainUVs(cachedInnerArchBandGeom);
   }
   if (!cachedMidArchBandGeom) {
-    cachedMidArchBandGeom = createArchBandGeometry(1.805, 1.88, 3.75, 0.54);
+    cachedMidArchBandGeom = createArchBandGeometry(1.798, 1.852, 3.75, 0.45);
+    applyWoodGrainUVs(cachedMidArchBandGeom);
   }
   if (!cachedOuterArchBandGeom) {
-    cachedOuterArchBandGeom = createArchBandGeometry(1.88, 1.925, 3.75, 0.58);
+    cachedOuterArchBandGeom = createArchBandGeometry(1.852, 1.888, 3.75, 0.48);
+    applyWoodGrainUVs(cachedOuterArchBandGeom);
   }
 
   const group = new THREE.Group();
 
-  // Single uniform limestone material — no contrasting border/trim colors on any arch part.
-  const limestoneMat = new THREE.MeshStandardMaterial({
-    color: 0xede5d6,
-    emissive: 0xd8cebc,
-    emissiveIntensity: 0.12,
-    roughness: 0.55,
-    metalness: 0.05,
+  const woodMap = createWoodFinishTexture();
+  const woodMat = new THREE.MeshStandardMaterial({
+    color: 0xffffff,
+    map: woodMap,
+    roughness: 0.38,
+    metalness: 0.08,
+    emissive: 0x4a301c,
+    emissiveIntensity: 0.05,
   });
 
-  // 1. Three-stepped Greek archivolt bands — all uniform limestone, no accent borders
-  group.add(new THREE.Mesh(cachedInnerArchBandGeom, limestoneMat));
-  group.add(new THREE.Mesh(cachedMidArchBandGeom, limestoneMat));
-  group.add(new THREE.Mesh(cachedOuterArchBandGeom, limestoneMat));
+  // 1. Three-stepped Greek archivolt bands — one walnut finish, no accent borders
+  group.add(new THREE.Mesh(cachedInnerArchBandGeom, woodMat));
+  group.add(new THREE.Mesh(cachedMidArchBandGeom, woodMat));
+  group.add(new THREE.Mesh(cachedOuterArchBandGeom, woodMat));
 
   // 2. Stepped Attic plinth bases (y = 0..0.34) and Doric/Ionic impost capitals at springline (y = 3.75)
-  const plinthLowerGeom = new THREE.BoxGeometry(0.64, 0.18, 0.24);
-  const plinthUpperGeom = new THREE.BoxGeometry(0.60, 0.14, 0.20);
-  const impostCapGeom = new THREE.BoxGeometry(0.64, 0.11, 0.25);
-  const impostNeckGeom = new THREE.BoxGeometry(0.60, 0.05, 0.21);
+  const plinthLowerGeom = new THREE.BoxGeometry(0.5, 0.15, 0.18);
+  const plinthUpperGeom = new THREE.BoxGeometry(0.46, 0.12, 0.16);
+  const impostCapGeom = new THREE.BoxGeometry(0.5, 0.09, 0.18);
+  const impostNeckGeom = new THREE.BoxGeometry(0.46, 0.04, 0.16);
+  applyWoodGrainUVs(plinthLowerGeom);
+  applyWoodGrainUVs(plinthUpperGeom);
+  applyWoodGrainUVs(impostCapGeom);
+  applyWoodGrainUVs(impostNeckGeom);
 
   for (const side of [-1, 1]) {
     // Each piece starts exactly at the arch opening edge (1.78) so nothing intrudes into the doorway
     const openingEdge = 1.78;
 
-    const baseLower = new THREE.Mesh(plinthLowerGeom, limestoneMat);
-    baseLower.position.set(0, 0.09, side * (openingEdge + 0.12));
+    const baseLower = new THREE.Mesh(plinthLowerGeom, woodMat);
+    baseLower.position.set(0, 0.075, side * (openingEdge + 0.09));
     group.add(baseLower);
 
-    const baseUpper = new THREE.Mesh(plinthUpperGeom, limestoneMat);
-    baseUpper.position.set(0, 0.25, side * (openingEdge + 0.10));
+    const baseUpper = new THREE.Mesh(plinthUpperGeom, woodMat);
+    baseUpper.position.set(0, 0.21, side * (openingEdge + 0.075));
     group.add(baseUpper);
 
-    const impostCap = new THREE.Mesh(impostCapGeom, limestoneMat);
-    impostCap.position.set(0, 3.75, side * (openingEdge + 0.125));
+    const impostCap = new THREE.Mesh(impostCapGeom, woodMat);
+    impostCap.position.set(0, 3.75, side * (openingEdge + 0.09));
     group.add(impostCap);
 
-    const impostNeck = new THREE.Mesh(impostNeckGeom, limestoneMat);
-    impostNeck.position.set(0, 3.66, side * (openingEdge + 0.105));
+    const impostNeck = new THREE.Mesh(impostNeckGeom, woodMat);
+    impostNeck.position.set(0, 3.68, side * (openingEdge + 0.075));
     group.add(impostNeck);
   }
 
   // 3. Classical Crown Keystone at top of the arch (y = 5.56)
-  const keystoneGeom = new THREE.BoxGeometry(0.64, 0.32, 0.24);
-  const keystoneMesh = new THREE.Mesh(keystoneGeom, limestoneMat);
+  const keystoneGeom = new THREE.BoxGeometry(0.48, 0.24, 0.18);
+  applyWoodGrainUVs(keystoneGeom);
+  const keystoneMesh = new THREE.Mesh(keystoneGeom, woodMat);
   keystoneMesh.position.set(0, 5.56, 0);
   group.add(keystoneMesh);
 
-  const keystoneAccentGeom = new THREE.BoxGeometry(0.66, 0.22, 0.06);
-  const keystoneAccent = new THREE.Mesh(keystoneAccentGeom, limestoneMat);
+  const keystoneAccentGeom = new THREE.BoxGeometry(0.5, 0.16, 0.05);
+  applyWoodGrainUVs(keystoneAccentGeom);
+  const keystoneAccent = new THREE.Mesh(keystoneAccentGeom, woodMat);
   keystoneAccent.position.set(0, 5.56, 0);
   group.add(keystoneAccent);
 
   return group;
 }
 
-function createPlatformGeometry(): THREE.LatheGeometry {
-  const points = [
-    new THREE.Vector2(0.0, 0.0),
-    new THREE.Vector2(4.01, 0.0),
-    new THREE.Vector2(4.01, 0.036),
-    new THREE.Vector2(4.005, 0.04),
-    new THREE.Vector2(0.0, 0.04),
-  ];
-  const geom = new THREE.LatheGeometry(points, 72);
-  const pos = geom.attributes.position;
-  const uvs = new Float32Array(pos.count * 2);
-  for (let i = 0; i < pos.count; i++) {
-    const x = pos.getX(i);
-    const z = pos.getZ(i);
-    uvs[i * 2] = x / 8.02 + 0.5;
-    uvs[i * 2 + 1] = z / 8.02 + 0.5;
-  }
-  geom.setAttribute("uv", new THREE.BufferAttribute(uvs, 2));
-  geom.computeVertexNormals();
-  return geom;
+/**
+ * SOURCE OF TRUTH KEYWORDS: addArchOpeningEdge, dark reveal, chapter fillet, rotunda and gallery
+ * WHAT: Adds the dark inner recess and thin chapter-colored fillet used on every doorway.
+ * WHY: The rotunda and the gallery end arches have to read as the same walnut frame, including the inner edge.
+ * WHERE: buildProceduralHallScene and buildMuseumRoomScene.
+ */
+function addArchOpeningEdge(group: THREE.Group, washHex: number | string): void {
+  const revealMat = new THREE.MeshStandardMaterial({
+    color: 0x2c261f,
+    roughness: 0.86,
+    metalness: 0.02,
+    emissive: 0x1a1612,
+    emissiveIntensity: 0.18,
+  });
+  const filletMat = new THREE.MeshStandardMaterial({
+    color: washHex,
+    roughness: 0.42,
+    metalness: 0.12,
+    emissive: new THREE.Color(washHex),
+    emissiveIntensity: 0.08,
+  });
+  group.add(
+    new THREE.Mesh(createArchBandGeometry(1.72, 1.78, 3.75, 0.18), revealMat),
+    new THREE.Mesh(createArchBandGeometry(1.78, 1.805, 3.75, 0.2), filletMat),
+  );
 }
 
 function createFloorGeometry(): THREE.CircleGeometry {
@@ -747,33 +893,19 @@ export function buildProceduralHallScene(
 
   const rot20 = new THREE.Quaternion(0, 0.1736481785774231, 0, 0.9848077297210693);
 
+  // Plaster and floor share the walnut hue (~34°). The frames are the only darker note.
   const wallMat = new THREE.MeshLambertMaterial({
-    color: 0xf3eee6,
-    emissive: 0xe9e0d1,
-    emissiveIntensity: 0.14,
+    color: 0xe8d9c8,
+    emissive: 0xdccbb6,
+    emissiveIntensity: 0.04,
     side: THREE.DoubleSide,
   });
 
-  const platformMat = new THREE.MeshStandardMaterial({
-    color: 0xf3eee6,
-    map: textures.platform || null,
-    roughness: 0.35,
-    metalness: 0.04,
-  });
-
   const floorMat = new THREE.MeshStandardMaterial({
-    color: 0xf0e9dd,
-    map: textures.floor || null,
-    emissive: new THREE.Color(0xf3eee6),
-    emissiveIntensity: 0.06,
-    roughness: 0.85,
+    color: 0xd2c0a8,
+    roughness: 0.9,
     metalness: 0.0,
   });
-
-  const platformMesh = new THREE.Mesh(createPlatformGeometry(), platformMat);
-  platformMesh.name = "PlatformHall";
-  platformMesh.quaternion.copy(rot20);
-  root.add(platformMesh);
 
   const floorMesh = new THREE.Mesh(createFloorGeometry(), floorMat);
   floorMesh.name = "FloorHall";
@@ -789,10 +921,14 @@ export function buildProceduralHallScene(
   const wallRadius = 9.85;
   const previewRadius = 10.12;
 
-  // Each portal owns 60° of the circle, plus a small overlap so the seams stay closed.
-  const wallSectorHalf = wallRadius * (Math.PI / 6) + 0.04;
-  const wallGeom = createWallSegmentGeometry(wallSectorHalf);
-  curveWallOntoCircle(wallGeom, wallRadius);
+  const wallGeom = createContinuousRotundaWall(
+    wallRadius,
+    portals.map((portal) => portal.angleDeg),
+  );
+  const hallWall = new THREE.Mesh(wallGeom, wallMat);
+  hallWall.name = "WallsHall";
+  root.add(hallWall);
+
   const previewGeom = new THREE.PlaneGeometry(3.64, 5.56, 20, 20);
   // Translate by half height so bottom sits at y = 0.0, matching createPortalEnergyField 1:1
   previewGeom.translate(0, 5.56 * 0.5, 0);
@@ -803,11 +939,11 @@ export function buildProceduralHallScene(
     const dirZ = -Math.cos(theta);
     const wallRotY = theta - Math.PI / 2;
 
-    const wallMesh = new THREE.Mesh(wallGeom, wallMat);
-    wallMesh.name = `WallsHall_${idx}`;
-    wallMesh.position.set(dirX * wallRadius, 0, dirZ * wallRadius);
-    wallMesh.rotation.set(0, wallRotY, 0);
-    root.add(wallMesh);
+    const labelAnchor = new THREE.Group();
+    labelAnchor.name = `WallLabel_${idx}`;
+    labelAnchor.position.set(dirX * wallRadius, 0, dirZ * wallRadius);
+    labelAnchor.rotation.set(0, wallRotY, 0);
+    root.add(labelAnchor);
 
     const sideLabelGeom = new THREE.PlaneGeometry(3.15, 3.9, 18, 1);
     // Face the centre (local +X on this wall is inward), then sit the card on the curve.
@@ -829,7 +965,7 @@ export function buildProceduralHallScene(
       }),
     );
     textMesh.name = cfg.textNode;
-    wallMesh.add(textMesh);
+    labelAnchor.add(textMesh);
 
     const portalAnchor = new THREE.Object3D();
     portalAnchor.name = cfg.portalNode;
@@ -839,47 +975,7 @@ export function buildProceduralHallScene(
     root.add(portalAnchor);
 
     const glowGroup = createGreekArchwayMoldingGroup(cfg.washHex);
-    const revealMat = new THREE.MeshStandardMaterial({
-      color: 0x2c261f,
-      roughness: 0.86,
-      metalness: 0.02,
-      emissive: 0x1a1612,
-      emissiveIntensity: 0.18,
-    });
-    const filletMat = new THREE.MeshStandardMaterial({
-      color: cfg.washHex,
-      roughness: 0.42,
-      metalness: 0.12,
-      emissive: cfg.washHex,
-      emissiveIntensity: 0.08,
-    });
-    const stepMats = [
-      new THREE.MeshStandardMaterial({
-        color: 0xb3a794,
-        roughness: 0.62,
-        metalness: 0.05,
-      }),
-      new THREE.MeshStandardMaterial({
-        color: 0xd2c8b8,
-        roughness: 0.5,
-        metalness: 0.05,
-      }),
-      new THREE.MeshStandardMaterial({
-        color: 0xe8e0d3,
-        roughness: 0.46,
-        metalness: 0.04,
-      }),
-    ];
-    glowGroup.children.forEach((child, step) => {
-      const mesh = child as THREE.Mesh;
-      if (!mesh.isMesh || step > 2) return;
-      mesh.material = stepMats[step];
-    });
-    // Dark recess so the scan sits inside the opening, then a thin ochre fillet on the inner edge.
-    glowGroup.add(
-      new THREE.Mesh(createArchBandGeometry(1.7, 1.78, 3.75, 0.22), revealMat),
-      new THREE.Mesh(createArchBandGeometry(1.78, 1.84, 3.75, 0.28), filletMat),
-    );
+    addArchOpeningEdge(glowGroup, cfg.washHex);
     seatRotundaArchFrame(glowGroup, wallRadius, 1.12, 0.28);
     glowGroup.name = cfg.glowNode;
     glowGroup.position.set(dirX * wallRadius, 0, dirZ * wallRadius);
@@ -942,17 +1038,16 @@ function createContactShadowTexture(): THREE.CanvasTexture {
 
 /**
  * SOURCE OF TRUTH KEYWORDS: createTwinArchEndWallGeometry, end of hallway arches, portal_1, portal_2
- * WHAT: Builds the precision twin-arch end wall at x = portalWallX with two open semicircular archways at Z = -2.35 and Z = +2.35 matching the Rotunda arch dimensions.
- * WHY: Guarantees the end-of-hallway arches, Greek mouldings, preview images, and FBM portal energy overlays match the Rotunda entrance arches 1:1.
+ * WHAT: Builds the twin-arch end wall with two openings the same size as the rotunda doors, and plaster shoulders on both sides.
+ * WHY: The gallery doorways use the rotunda arch width. The wall has to be wider than those frames so the walnut sits on plaster instead of meeting the side walls.
  * WHERE: buildMuseumRoomScene.
  */
-function createTwinArchEndWallGeometry(): THREE.ExtrudeGeometry {
-  const halfW = 6.2;
+function createTwinArchEndWallGeometry(halfW: number, archZ: number): THREE.ExtrudeGeometry {
   const wallH = 11.2;
   const archHalfW = 1.78;
   const archSpringY = 3.75;
-  const leftArchZ = -2.35;
-  const rightArchZ = 2.35;
+  const leftArchZ = -archZ;
+  const rightArchZ = archZ;
 
   const shape = new THREE.Shape();
   shape.moveTo(-halfW, 0);
@@ -1016,32 +1111,34 @@ export async function buildMuseumRoomScene({
   const startWallX = minX - 4.2;
   const corridorLen = portalWallX - startWallX;
   const corridorCenterX = (startWallX + portalWallX) * 0.5;
-  const wallZ = 4.35;
+  // Narrower than the first widened hall. End doors stay the rotunda opening (half-width 1.78, centers at ±2.35) so the frames, holes, and portal washes still meet, with plaster left beside each jamb.
+  const wallZ = 5.15;
+  const archZ = 2.35;
 
-  // Materials — Warm plaster walls (#F3EEE6), deep bronze-walnut architectural trim (#26201B), copper ochre (#C4782A)
+  // Materials — plaster and floor in the walnut hue; trim is the same wood, darker.
   const wallMat = new THREE.MeshLambertMaterial({
-    color: 0xf3eee6,
-    emissive: 0xeae1d3,
-    emissiveIntensity: 0.16,
+    color: 0xe8d9c8,
+    emissive: 0xdccbb6,
+    emissiveIntensity: 0.04,
     side: THREE.DoubleSide,
   });
 
   const recessedBayMat = new THREE.MeshLambertMaterial({
-    color: 0xebe3d5,
-    emissive: 0xe2d8c7,
-    emissiveIntensity: 0.12,
+    color: 0xd5c3ab,
+    emissive: 0xcbb8a0,
+    emissiveIntensity: 0.03,
   });
 
   const plinthMat = new THREE.MeshStandardMaterial({
-    color: 0x241e1a,
-    roughness: 0.65,
-    metalness: 0.08,
+    color: 0x4a3224,
+    roughness: 0.62,
+    metalness: 0.06,
   });
 
   const frameOuterMat = new THREE.MeshStandardMaterial({
-    color: 0x261f1a,
-    roughness: 0.42,
-    metalness: 0.18,
+    color: 0x5c3d28,
+    roughness: 0.4,
+    metalness: 0.1,
   });
 
   const ochreTrimMat = new THREE.MeshStandardMaterial({
@@ -1056,18 +1153,23 @@ export async function buildMuseumRoomScene({
     metalness: 0.42,
   });
 
+  const walnutTrimMat = new THREE.MeshStandardMaterial({
+    color: 0x6e4b30,
+    roughness: 0.45,
+    metalness: 0.08,
+  });
+
   const paperBackingMat = new THREE.MeshBasicMaterial({
-    color: 0xf3eee6,
+    color: 0xe8d9c8,
   });
 
   const floorMat = new THREE.MeshBasicMaterial({
-    color: 0xf1ebe0,
-    map: textures.floor || null,
+    color: 0xd2c0a8,
     side: THREE.DoubleSide,
   });
 
   // 1. Corridor Floor & Central Exhibition Runner Border
-  const floorGeom = new THREE.PlaneGeometry(corridorLen + 14, 14);
+  const floorGeom = new THREE.PlaneGeometry(corridorLen + 14, wallZ * 2 + 3);
   floorGeom.rotateX(-Math.PI / 2);
   const floorMesh = new THREE.Mesh(floorGeom, floorMat);
   floorMesh.name = "Floor";
@@ -1077,10 +1179,10 @@ export async function buildMuseumRoomScene({
   // Subtle inlaid copper-ochre floor guide lines along both sides of the walk
   const floorRuleGeom = new THREE.PlaneGeometry(corridorLen, 0.045);
   floorRuleGeom.rotateX(-Math.PI / 2);
-  const leftFloorRule = new THREE.Mesh(floorRuleGeom, ochreTrimMat);
+  const leftFloorRule = new THREE.Mesh(floorRuleGeom, walnutTrimMat);
   leftFloorRule.position.set(corridorCenterX, 0.008, -2.85);
   root.add(leftFloorRule);
-  const rightFloorRule = new THREE.Mesh(floorRuleGeom, ochreTrimMat);
+  const rightFloorRule = new THREE.Mesh(floorRuleGeom, walnutTrimMat);
   rightFloorRule.position.set(corridorCenterX, 0.008, 2.85);
   root.add(rightFloorRule);
 
@@ -1102,11 +1204,11 @@ export async function buildMuseumRoomScene({
 
   for (const side of [-1, 1]) {
     const zBase = side * (wallZ - 0.04);
-    const baseboard = new THREE.Mesh(baseboardGeom, plinthMat);
+    const baseboard = new THREE.Mesh(baseboardGeom, walnutTrimMat);
     baseboard.position.set(corridorCenterX, 0.17, zBase);
     root.add(baseboard);
 
-    const dado = new THREE.Mesh(dadoGeom, ochreTrimMat);
+    const dado = new THREE.Mesh(dadoGeom, walnutTrimMat);
     dado.position.set(corridorCenterX, 0.96, zBase);
     root.add(dado);
 
@@ -1153,7 +1255,7 @@ export async function buildMuseumRoomScene({
   root.add(backWall);
 
   // 3. End-of-Hallway Twin Arch Portals Wall (portal_1 -> next collection, portal_2 -> previous collection / rotunda)
-  const endWallMesh = new THREE.Mesh(createTwinArchEndWallGeometry(), wallMat);
+  const endWallMesh = new THREE.Mesh(createTwinArchEndWallGeometry(wallZ + 0.5, archZ), wallMat);
   endWallMesh.name = "EndPortalWall";
   endWallMesh.position.set(portalWallX, 0, 0);
   root.add(endWallMesh);
@@ -1168,8 +1270,8 @@ export async function buildMuseumRoomScene({
   chamberBackMesh.position.set(portalWallX + 0.72, 3.4, 0);
   root.add(chamberBackMesh);
 
-  const rightArchZ = 2.35;
-  const leftArchZ = -2.35;
+  const rightArchZ = archZ;
+  const leftArchZ = -archZ;
 
   const portal1Anchor = new THREE.Object3D();
   portal1Anchor.name = "portal_1";
@@ -1182,16 +1284,18 @@ export async function buildMuseumRoomScene({
   root.add(portal2Anchor);
 
   const portal1Glow = createGreekArchwayMoldingGroup(portalTheme.portal1Color);
+  addArchOpeningEdge(portal1Glow, portalTheme.portal1Color);
   portal1Glow.name = "portal_1_glow";
-  portal1Glow.position.set(portalWallX - 0.04, 0, rightArchZ);
+  portal1Glow.position.set(portalWallX - 0.42, 0, rightArchZ);
   // Orient the Greek archway molding to face inward toward the gallery,
   // matching the rotunda entrance arch orientation (rotation.set(0, wallRotY, 0)).
   portal1Glow.rotation.set(0, Math.PI, 0);
   root.add(portal1Glow);
 
   const portal2Glow = createGreekArchwayMoldingGroup(portalTheme.portal2Color);
+  addArchOpeningEdge(portal2Glow, portalTheme.portal2Color);
   portal2Glow.name = "portal_2_glow";
-  portal2Glow.position.set(portalWallX - 0.04, 0, leftArchZ);
+  portal2Glow.position.set(portalWallX - 0.42, 0, leftArchZ);
   portal2Glow.rotation.set(0, Math.PI, 0);
   root.add(portal2Glow);
 
@@ -1326,7 +1430,7 @@ export async function buildMuseumRoomScene({
     const isRightSide = idx % 2 === 0;
     const xPos = +(firstPicX + idx * picStepX).toFixed(3);
     const yPos = 2.42;
-    const zPos = isRightSide ? 2.86 : -2.86;
+    const zPos = (isRightSide ? 1 : -1) * (wallZ - 1.55);
     // Tilt each frame ~30 degrees toward the approaching visitor so all scans are clearly visible upon entering the hallway
     const cantAngleY = isRightSide ? Math.PI + 0.52 : -0.52;
     const normalX = Math.sin(cantAngleY);

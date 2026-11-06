@@ -82,15 +82,14 @@ function portalStepDelta(fromRad: number, direction: 1 | -1): number {
 }
 
 /**
- * SOURCE OF TRUTH KEYWORDS: coastStationX, roomTargetX, picture lock-on, momentum
- * WHAT: Picks the picture to settle on, continuing forward when the walk has already left the previous one.
- * WHY: Stopping short of the halfway point should finish the move, not fall back.
+ * SOURCE OF TRUTH KEYWORDS: coastStationX, roomTargetX, picture lock-on, exit arches
+ * WHAT: Settles the gallery walk on the station the camera has reached, or on the exit arches once the last board is behind it.
+ * WHY: A fast scroll must stay on the board it reached. Passing the last board should hold the camera in front of the exit arches instead of rewinding.
  * WHERE: The gallery animation loop.
  */
 function coastStationX(
   fromX: number,
   travel: number,
-  gestureStart: number,
   minX: number,
   maxX: number,
   roomConfig: RoomConfigMetrics | null,
@@ -100,26 +99,44 @@ function coastStationX(
   const viewX = (index: number) =>
     minX + (archiveEffects.getMarkerPercentage(index, roomConfig) / 100) * span;
   const stops = Array.from({ length: count }, (_, index) => viewX(index));
-  let nearest = fromX;
+  if (stops.length === 0) return THREE.MathUtils.clamp(fromX, minX, maxX);
+
+  // Same distance that counts as a real step. The dolly ends in front of the exit arches.
+  const commit = 0.9;
+  const lastPicture = stops[stops.length - 1];
+  if (maxX > lastPicture + commit) stops.push(maxX);
+
+  let nearest = 0;
   let nearestDist = Infinity;
-  for (const stop of stops) {
-    const dist = Math.abs(stop - fromX);
+  for (let index = 0; index < stops.length; index += 1) {
+    const dist = Math.abs(stops[index] - fromX);
     if (dist < nearestDist) {
       nearestDist = dist;
-      nearest = stop;
+      nearest = index;
     }
   }
-  if (Math.abs(travel) <= 0.9 || stops.length === 0) return nearest;
-  let origin = -1;
-  for (let index = 0; index < stops.length; index += 1) {
-    if (stops[index] <= gestureStart + 0.25) origin = index;
+  if (Math.abs(travel) <= commit) return stops[nearest];
+
+  const direction = travel > 0 ? 1 : -1;
+  let reached = direction > 0 ? 0 : stops.length - 1;
+
+  if (direction > 0) {
+    for (let index = 0; index < stops.length; index += 1) {
+      if (fromX + 0.05 >= stops[index]) reached = index;
+    }
+    if (reached < stops.length - 1 && fromX > stops[reached] + commit) {
+      reached += 1;
+    }
+  } else {
+    for (let index = stops.length - 1; index >= 0; index -= 1) {
+      if (fromX - 0.05 <= stops[index]) reached = index;
+    }
+    if (reached > 0 && fromX < stops[reached] - commit) {
+      reached -= 1;
+    }
   }
-  if (travel > 0) {
-    const dest = origin + 1;
-    return stops[Math.min(Math.max(dest, 0), stops.length - 1)];
-  }
-  const dest = origin < 0 ? 0 : origin - 1;
-  return stops[Math.max(dest, 0)];
+
+  return stops[reached];
 }
 
 /**
@@ -334,17 +351,9 @@ export function BccnsArchiveExperience({
   // --- DOM & Mutable Engine Refs ---
   const mountRef = useRef<HTMLDivElement | null>(null);
   const scrubberTrackRef = useRef<HTMLDivElement | null>(null);
-  const scrubberLineRef = useRef<HTMLDivElement | null>(null);
-  const scrubberHandleRef = useRef<HTMLDivElement | null>(null);
   const cursorRef = useRef<HTMLDivElement | null>(null);
-  const askViewKeyRef = useRef("");
   const [hallClueHiddenFor, setHallClueHiddenFor] = useState<CollectionKey | null>(null);
-  const [askView, setAskView] = useState<{
-    scope: "room" | "record";
-    collectionKey: CollectionKey;
-    recordId?: string;
-    label: string;
-  } | null>(null);
+  const [recordClueHiddenFor, setRecordClueHiddenFor] = useState<string | null>(null);
 
   const engineRef = useRef<{
     renderer: THREE.WebGLRenderer | null;
@@ -388,7 +397,6 @@ export function BccnsArchiveExperience({
     roomTargetLookRotY: number;
     hallTravel: number;
     roomTravel: number;
-    roomGestureStart: number;
     hallLatch: number | null;
     roomLatch: number | null;
     hoveredPortalCfg: PortalConfig | null;
@@ -436,7 +444,6 @@ export function BccnsArchiveExperience({
     roomTargetLookRotY: 0,
     hallTravel: 0,
     roomTravel: 0,
-    roomGestureStart: -50.1,
     hallLatch: null,
     roomLatch: null,
     hoveredPortalCfg: null,
@@ -509,7 +516,6 @@ export function BccnsArchiveExperience({
     const span = Math.max(0.001, st.roomMaxX - st.roomMinX);
     st.roomTargetX = st.roomMinX + (clamped / 100) * span;
     st.roomTravel = 0;
-    st.roomGestureStart = st.roomTargetX;
     st.roomLatch = null;
     st.roomProgress = clamped;
     setRoomProgress(clamped);
@@ -577,7 +583,7 @@ export function BccnsArchiveExperience({
           height: 20,
           opacity: 0.07,
           blur: 0,
-          matteColor: 0xf3eee6,
+          matteColor: 0xe8d9c8,
         }),
       );
     }
@@ -664,16 +670,15 @@ export function BccnsArchiveExperience({
     }
 
     st.appMode = "hall";
-    askViewKeyRef.current = "";
-    setAskView(null);
+    setRecordClueHiddenFor(null);
     setAppMode("hall");
     setWelcomeOpen(false);
     setVoiceOpen(false);
     setPortalPromptText(null);
 
-    st.scene.background = new THREE.Color(0xf3eee6);
-    st.scene.fog = new THREE.Fog(0xf3eee6, 8, 30);
-    st.renderer.setClearColor(0xf3eee6, 1);
+    st.scene.background = new THREE.Color(0xe8d9c8);
+    st.scene.fog = new THREE.Fog(0xe8d9c8, 8, 30);
+    st.renderer.setClearColor(0xe8d9c8, 1);
     if (st.ambientLight) st.ambientLight.intensity = 3.2;
 
     st.currentHallRoot = archiveGeometry.buildProceduralHallScene(
@@ -739,25 +744,7 @@ export function BccnsArchiveExperience({
     st.welcomeOpen = false;
 
     setCurrentCollectionKey(validKey);
-    const linkedStation = options?.initialRecordId
-      ? targetCollection.stations.find((station) => station.id === options.initialRecordId)
-      : undefined;
-    if (linkedStation) {
-      askViewKeyRef.current = `record|${validKey}|${linkedStation.id}`;
-      setAskView({
-        scope: "record",
-        collectionKey: validKey,
-        recordId: linkedStation.id,
-        label: linkedStation.dc_title,
-      });
-    } else {
-      askViewKeyRef.current = `room|${validKey}|`;
-      setAskView({
-        scope: "room",
-        collectionKey: validKey,
-        label: targetCollection.title,
-      });
-    }
+    setRecordClueHiddenFor(null);
     setAppMode("museum");
     setWelcomeOpen(false);
     setVoiceOpen(false);
@@ -803,13 +790,13 @@ export function BccnsArchiveExperience({
         width: 26,
         height: 19,
         opacity: 0.055,
-        matteColor: 0xf3eee6,
+        matteColor: 0xe8d9c8,
       }),
       archiveEffects.createFloorReflector(roomBuild.reflector02, {
         width: 26,
         height: 19,
         opacity: 0.055,
-        matteColor: 0xf3eee6,
+        matteColor: 0xe8d9c8,
       }),
     );
 
@@ -922,7 +909,6 @@ export function BccnsArchiveExperience({
     st.roomTargetX = st.roomMinX;
     st.roomTravel = 0;
     st.roomLatch = null;
-    st.roomGestureStart = st.roomMinX;
     st.roomProgress = 0;
     st.activeStationIndex = 0;
     st.roomLookRotX = 0;
@@ -943,7 +929,6 @@ export function BccnsArchiveExperience({
         const span = st.roomMaxX - st.roomMinX;
         st.roomCurrentX = st.roomMinX + (pct / 100) * span;
         st.roomTargetX = st.roomCurrentX;
-        st.roomGestureStart = st.roomCurrentX;
         st.roomProgress = pct;
         st.activeStationIndex = targetIdx;
         setRoomProgress(pct);
@@ -990,6 +975,11 @@ export function BccnsArchiveExperience({
 
     syncDeepLinkUrl("hall");
 
+    // The latch still holds the unwrapped heading from before the hallway.
+    // Chasing it spins the rotunda through every arch on the way back.
+    st.hallTravel = 0;
+    st.hallLatch = null;
+    st.rotationSpeed = 0;
     st.currentRotY = THREE.MathUtils.degToRad(cfg.angleDeg);
     st.targetRotY = st.currentRotY;
     st.activePortalId = cfg.id;
@@ -1058,7 +1048,6 @@ export function BccnsArchiveExperience({
           st.roomTravel = 0;
           st.roomLatch = null;
           st.roomTargetX = THREE.MathUtils.clamp(viewX(stepped), st.roomMinX, st.roomMaxX);
-          st.roomGestureStart = st.roomTargetX;
         }
       }
     };
@@ -1093,13 +1082,13 @@ export function BccnsArchiveExperience({
     });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.setSize(window.innerWidth, window.innerHeight);
-    renderer.setClearColor(0xf3eee6, 1);
+    renderer.setClearColor(0xe8d9c8, 1);
     container.innerHTML = "";
     container.appendChild(renderer.domElement);
 
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0xf3eee6);
-    scene.fog = new THREE.Fog(0xf3eee6, 8, 30);
+    scene.background = new THREE.Color(0xe8d9c8);
+    scene.fog = new THREE.Fog(0xe8d9c8, 8, 30);
 
     const ambientLight = new THREE.AmbientLight(0xfffaf0, 3.2);
     scene.add(ambientLight);
@@ -1206,7 +1195,6 @@ export function BccnsArchiveExperience({
           closeWelcomeCard();
         }
         const roomDelta = e.deltaY * 0.012;
-        if (st.roomTravel === 0) st.roomGestureStart = st.roomTargetX;
         st.roomTravel += roomDelta;
         st.roomTargetX = THREE.MathUtils.clamp(
           st.roomTargetX + roomDelta,
@@ -1344,7 +1332,6 @@ export function BccnsArchiveExperience({
             closeWelcomeCard();
           }
           const roomDelta = primaryDelta * 0.045;
-          if (st.roomTravel === 0) st.roomGestureStart = st.roomTargetX;
           st.roomTravel += roomDelta;
           st.roomTargetX = THREE.MathUtils.clamp(
             st.roomTargetX + roomDelta,
@@ -1401,16 +1388,6 @@ export function BccnsArchiveExperience({
             .stationData as ArchiveStation;
           document.body.style.cursor = "pointer";
           setCursorInteractive(true);
-          const viewKey = `record|${st.currentCollectionKey}|${station.id}`;
-          if (askViewKeyRef.current !== viewKey) {
-            askViewKeyRef.current = viewKey;
-            setAskView({
-              scope: "record",
-              collectionKey: st.currentCollectionKey,
-              recordId: station.id,
-              label: station.dc_title,
-            });
-          }
           setPortalPromptText(
             `READ RECORD: ${station.dc_title} (${station.display_year})`,
           );
@@ -1539,7 +1516,13 @@ export function BccnsArchiveExperience({
             st.hallTravel = 0;
           }
           const pull = 1 - Math.exp(-2.8 * dt);
-          st.targetRotY += (st.hallLatch - st.targetRotY) * pull;
+          const gap = THREE.MathUtils.degToRad(
+            shortestAngleDiffDeg(
+              THREE.MathUtils.radToDeg(st.targetRotY),
+              THREE.MathUtils.radToDeg(st.hallLatch),
+            ),
+          );
+          st.targetRotY += gap * pull;
         }
         if (Math.abs(diff) > 1e-4) {
           st.rotationSpeed = Math.min(st.rotationSpeed + 0.3 * dt, 0.12);
@@ -1597,7 +1580,6 @@ export function BccnsArchiveExperience({
             st.roomLatch = coastStationX(
               st.roomTargetX,
               st.roomTravel,
-              st.roomGestureStart,
               st.roomMinX,
               st.roomMaxX,
               st.currentRoomBuild.roomConfig,
@@ -1626,15 +1608,6 @@ export function BccnsArchiveExperience({
           0,
           Math.min(100, ((st.roomCurrentX - st.roomMinX) / span) * 100),
         );
-
-        // Update scrubber visuals directly from live camera position — avoids
-        // the React state deadband (0.05%) that made the ball lag then snap.
-        if (scrubberLineRef.current) {
-          scrubberLineRef.current.style.setProperty("--walk-progress", `${pct}%`);
-        }
-        if (scrubberHandleRef.current) {
-          scrubberHandleRef.current.style.left = `${pct}%`;
-        }
 
         if (Math.abs(pct - st.roomProgress) > 0.05) {
           st.roomProgress = pct;
@@ -1750,11 +1723,16 @@ export function BccnsArchiveExperience({
   const activeHallPortal =
     archiveEffects.PORTAL_CONFIGS[activePortalId] ??
     archiveEffects.PORTAL_CONFIGS[0];
-  const roomClue = askView ?? {
-    scope: "room" as const,
-    collectionKey: activeCollection.key,
-    label: activeCollection.title,
-  };
+  const inViewStation = activeStations[activeStationIndex] ?? activeStations[0];
+  const roomClue =
+    inViewStation && recordClueHiddenFor !== inViewStation.id
+      ? {
+          scope: "record" as const,
+          collectionKey: activeCollection.key,
+          recordId: inViewStation.id,
+          label: inViewStation.dc_title,
+        }
+      : null;
   const hallClue =
     hallClueHiddenFor === activeHallPortal.collectionKey
       ? null
@@ -1828,12 +1806,9 @@ export function BccnsArchiveExperience({
           view={askClue}
           onClearView={() => {
             if (appMode === "museum") {
-              askViewKeyRef.current = `room|${currentCollectionKey}|`;
-              setAskView({
-                scope: "room",
-                collectionKey: currentCollectionKey,
-                label: activeCollection.title,
-              });
+              const station =
+                activeStations[activeStationIndex] ?? activeStations[0];
+              setRecordClueHiddenFor(station?.id ?? null);
               return;
             }
             setHallClueHiddenFor(activeHallPortal.collectionKey);
@@ -1841,6 +1816,46 @@ export function BccnsArchiveExperience({
         />
 
         <nav className="bccns-top-actions" aria-label="Archive navigation">
+          <button
+            type="button"
+            className={`bccns-text-link ${mapOpen ? "active" : ""}`}
+            id="collectionMapBtn"
+            onClick={() => setMapOpen((prev) => !prev)}
+          >
+            Map
+          </button>
+          {appMode === "museum" && (
+            <>
+              <button
+                type="button"
+                className={`bccns-text-link ${welcomeOpen ? "active" : ""}`}
+                id="toggleWelcomeCardBtn"
+                onClick={() => {
+                  if (!welcomeOpen) {
+                    engineRef.current.welcomeOpen = true;
+                    setWelcomeOpen(true);
+                    setVoiceOpen(false);
+                  } else {
+                    closeWelcomeCard();
+                  }
+                }}
+              >
+                Chapter
+              </button>
+              <button
+                type="button"
+                className={`bccns-text-link ${voiceOpen ? "active" : ""}`}
+                id="curatorialVoiceBtn"
+                onClick={() => {
+                  engineRef.current.welcomeOpen = false;
+                  setWelcomeOpen(false);
+                  setVoiceOpen((prev) => !prev);
+                }}
+              >
+                Voice
+              </button>
+            </>
+          )}
           {appMode === "museum" && currentHeaderStation && (
             <button
               type="button"
@@ -1940,18 +1955,7 @@ export function BccnsArchiveExperience({
             }
           }}
         >
-          <div
-            ref={scrubberLineRef}
-            className="bccns-scrubber-line"
-            style={
-              { "--walk-progress": `${roomProgress}%` } as React.CSSProperties
-            }
-          />
-          <div
-            ref={scrubberHandleRef}
-            className="bccns-scrubber-handle"
-            style={{ left: `${roomProgress}%` }}
-          />
+          <div className="bccns-scrubber-line" />
           <div>
             {activeStations.map((station, idx) => {
               const cfgOrLen = activeRoomConfig ?? activeStations.length;
@@ -1992,126 +1996,6 @@ export function BccnsArchiveExperience({
           </div>
         </div>
       </section>
-
-      {/* Bottom Floating Controls */}
-      <footer className="bccns-bottom-controls">
-        <div className="bccns-controls-group">
-          <button
-            type="button"
-            className={`bccns-hairline-pill ${mapOpen ? "active" : ""}`}
-            id="collectionMapBtn"
-            onClick={() => setMapOpen((prev) => !prev)}
-          >
-            <svg
-              width="15"
-              height="15"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.7"
-              aria-hidden="true"
-            >
-              <rect x="3" y="3" width="18" height="18" rx="2" />
-              <line x1="7" y1="8" x2="17" y2="8" />
-              <line x1="7" y1="12" x2="14" y2="12" />
-              <line x1="7" y1="16" x2="11" y2="16" />
-            </svg>
-            <span>{mapOpen ? "CLOSE MAP" : "COLLECTION MAP"}</span>
-          </button>
-
-          {appMode === "hall" && (
-            <button
-              type="button"
-              className="bccns-hairline-pill"
-              id="enterFacingCollectionBtn"
-              onClick={() =>
-                transitionToCollectionRoom(activeHallPortal.collectionKey)
-              }
-            >
-              ENTER {activeHallPortal.title.toUpperCase()}
-            </button>
-          )}
-        </div>
-
-        <div className="bccns-center-indicator">
-          {appMode === "hall" ? (
-            <div className="bccns-scroll-cue">
-              <span>TURN ROTUNDA WITH WHEEL, TOUCH, OR ARROWS</span>
-            </div>
-          ) : (
-            <>
-              <span className="bccns-chapter-label">
-                {activeCollection.chapterTitle}
-              </span>
-              <button
-                type="button"
-                className={`bccns-circle-btn ${welcomeOpen ? "active" : ""}`}
-                id="toggleWelcomeCardBtn"
-                aria-label="Toggle chapter introduction card"
-                title="Chapter Introduction"
-                onClick={() => {
-                  if (!welcomeOpen) {
-                    engineRef.current.welcomeOpen = true;
-                    setWelcomeOpen(true);
-                    setVoiceOpen(false);
-                  } else {
-                    closeWelcomeCard();
-                  }
-                }}
-              >
-                <span
-                  style={{
-                    fontFamily: "var(--font-bccns-serif), Georgia, serif",
-                    fontSize: 19,
-                    fontStyle: "italic",
-                  }}
-                >
-                  i
-                </span>
-              </button>
-            </>
-          )}
-        </div>
-
-        <div className="bccns-controls-group">
-          {appMode === "museum" && (
-            <>
-              <button
-                type="button"
-                className={`bccns-hairline-pill ${voiceOpen ? "active" : ""}`}
-                id="curatorialVoiceBtn"
-                onClick={() => {
-                  engineRef.current.welcomeOpen = false;
-                  setWelcomeOpen(false);
-                  setVoiceOpen((prev) => !prev);
-                }}
-              >
-                CURATORIAL VOICE
-              </button>
-              <button
-                type="button"
-                className="bccns-circle-btn"
-                id="returnRotundaBtn"
-                aria-label="Return to Rotunda Hall"
-                title="Return to Rotunda Hall"
-                onClick={() => returnToRotundaScene()}
-              >
-                <svg
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.7"
-                  aria-hidden="true"
-                >
-                  <path d="M3 10.5L12 3l9 7.5V21a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1v-10.5z" />
-                </svg>
-              </button>
-            </>
-          )}
-        </div>
-      </footer>
 
       {/* Welcome Card (Warm Paper #F3EEE6) */}
       <aside
