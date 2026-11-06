@@ -367,6 +367,80 @@ function createArchTitleBannerTexture(
 }
 
 /**
+ * SOURCE OF TRUTH KEYWORDS: createStationTitlePlateTexture, gallery caption, Cormorant Garamond, station title
+ * WHAT: Paints a warm-paper caption with the record year and a serif title for one hallway board.
+ * WHY: Each framed scan needs a readable title on the board itself, set in the archive's serif rather than baked into the picture.
+ * WHERE: The museum picture frames in buildMuseumRoomScene.
+ */
+function createStationTitlePlateTexture(
+  title: string,
+  year: string,
+): THREE.CanvasTexture {
+  const canvas = document.createElement("canvas");
+  canvas.width = 1024;
+  canvas.height = 350;
+  const ctx = canvas.getContext("2d");
+  if (ctx) {
+    // Same warm paper as the scan canvas (#F3EEE6) so the picture and the title read as one board.
+    ctx.fillStyle = "#F3EEE6";
+    ctx.fillRect(0, 0, 1024, 350);
+
+    const yearLabel = year.trim().toUpperCase();
+    let titleTop = 78;
+    if (yearLabel) {
+      ctx.fillStyle = "#5C4A3A";
+      ctx.font = '600 28px "Inter", -apple-system, sans-serif';
+      ctx.textBaseline = "middle";
+      const glyphs = Array.from(yearLabel);
+      const tracking = 3.2;
+      const widths = glyphs.map((glyph) => ctx.measureText(glyph).width);
+      const total =
+        widths.reduce((sum, width) => sum + width, 0) +
+        tracking * Math.max(0, glyphs.length - 1);
+      let cursor = (1024 - total) / 2;
+      ctx.textAlign = "left";
+      glyphs.forEach((glyph, index) => {
+        ctx.fillText(glyph, cursor, 58);
+        cursor += widths[index] + tracking;
+      });
+      ctx.fillStyle = "rgba(22, 22, 22, 0.18)";
+      ctx.fillRect(412, 92, 200, 2);
+      titleTop = 118;
+    }
+
+    ctx.fillStyle = "#1A1612";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    const sizes = [58, 50, 42, 36];
+    let chosenSize = 36;
+    let lines: string[] = [];
+    const wordCount = title.trim().split(/\s+/).filter(Boolean).length;
+    for (const size of sizes) {
+      ctx.font = `600 ${size}px "Cormorant Garamond", Georgia, serif`;
+      const wrapped = wrapCanvasLines(ctx, title, 920, 3);
+      const shown = wrapped.join(" ").split(/\s+/).filter(Boolean).length;
+      chosenSize = size;
+      lines = wrapped;
+      if (shown >= wordCount) break;
+    }
+    if (lines.join(" ").split(/\s+/).filter(Boolean).length < wordCount && lines.length > 0) {
+      const last = lines[lines.length - 1];
+      lines[lines.length - 1] = last.length > 1 ? `${last.replace(/\s+\S*$/, "")}…` : `${last}…`;
+    }
+    const lineHeight = Math.round(chosenSize * 1.14);
+    const firstCenter = titleTop + 28 + lineHeight / 2;
+    lines.forEach((line, index) => {
+      ctx.fillText(line, 512, firstCenter + index * lineHeight);
+    });
+  }
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 8;
+  return tex;
+}
+
+/**
  * SOURCE OF TRUTH KEYWORDS: createArchSideLabelTexture, rotunda door label, collection subtitle, large serif
  * WHAT: Renders a large left-aligned chapter title, years, and place summary for the rotunda.
  * WHY: The home view reads the chapter beside each door, larger than the old banner above the arch.
@@ -1401,20 +1475,46 @@ export async function buildMuseumRoomScene({
   const picStepX =
     stations.length > 1 ? (lastPicX - firstPicX) / (stations.length - 1) : 7.2;
 
-  // Picture canvas geometry in XY plane (+Z front normal), co-aligned with the 3D picture frame
-  const picGeom = new THREE.PlaneGeometry(2.54, 2.54, 24, 24);
+  // Picture above, serif title plate below. The board is raised so the caption clears the baseboard.
+  const imageSize = 2.54;
+  const imageHalf = imageSize / 2;
+  const titleWidth = imageSize;
+  const titleHeight = 0.82;
+  const titleGap = 0;
+  const titleCenterY = -(imageHalf + titleGap + titleHeight / 2);
+  const frameLip = 0.15;
+  const frameOuterW = 2.96;
+  const sideX = frameOuterW / 2 - frameLip / 2;
+  const topBarY = imageHalf + 0.1 + frameLip / 2;
+  const bottomBarY = titleCenterY - titleHeight / 2 - 0.1 - frameLip / 2;
+  const vertTop = topBarY - frameLip / 2;
+  const vertBottom = bottomBarY + frameLip / 2;
+  const vertHeight = vertTop - vertBottom;
+  const vertY = (vertTop + vertBottom) / 2;
+  const matTop = vertTop - 0.02;
+  const matBottom = vertBottom + 0.02;
+  const matHeight = matTop - matBottom;
+  const matY = (matTop + matBottom) / 2;
+  const yPos = 2.98;
+  const railLocalY = 5.25 - yPos;
+  const rodBottom = topBarY + 0.04;
+  const rodLength = Math.max(0.45, railLocalY - rodBottom);
+  const rodY = rodBottom + rodLength / 2;
+
+  const picGeom = new THREE.PlaneGeometry(imageSize, imageSize, 24, 24);
+  const titleGeom = new THREE.PlaneGeometry(titleWidth, titleHeight);
 
   // 4-Bar Mitered Museum Picture Frame geometries & recessed mat board (strictly behind z = 0 so picMesh is never occluded)
-  const frameHorizBarGeom = new THREE.BoxGeometry(2.92, 0.16, 0.12);
-  const frameVertBarGeom = new THREE.BoxGeometry(0.16, 2.60, 0.12);
-  const filletHorizBarGeom = new THREE.BoxGeometry(2.64, 0.045, 0.09);
-  const filletVertBarGeom = new THREE.BoxGeometry(0.045, 2.55, 0.09);
-  const matBoardBoxGeom = new THREE.BoxGeometry(2.62, 2.62, 0.03);
-  const hangingRodGeom = new THREE.CylinderGeometry(0.012, 0.012, 2.1, 8);
+  const frameHorizBarGeom = new THREE.BoxGeometry(frameOuterW, frameLip, 0.12);
+  const frameVertBarGeom = new THREE.BoxGeometry(frameLip, vertHeight, 0.12);
+  const filletHorizBarGeom = new THREE.BoxGeometry(frameOuterW - 0.28, 0.045, 0.09);
+  const filletVertBarGeom = new THREE.BoxGeometry(0.045, vertHeight - 0.12, 0.09);
+  const matBoardBoxGeom = new THREE.BoxGeometry(frameOuterW - 0.3, matHeight, 0.03);
+  const hangingRodGeom = new THREE.CylinderGeometry(0.012, 0.012, rodLength, 8);
   const pictureLightBarGeom = new THREE.BoxGeometry(1.35, 0.055, 0.24);
   const pictureLightArmGeom = new THREE.BoxGeometry(0.06, 0.06, 0.36);
 
-  const shadowGeom = new THREE.PlaneGeometry(3.1, 1.35);
+  const shadowGeom = new THREE.PlaneGeometry(3.4, 1.85);
   shadowGeom.rotateX(-Math.PI / 2);
   const shadowTex = createContactShadowTexture();
   const shadowMat = new THREE.MeshBasicMaterial({
@@ -1424,12 +1524,12 @@ export async function buildMuseumRoomScene({
   });
 
   const pictureMeshes: THREE.Mesh[] = [];
+  const stationLabelMeshes: THREE.Mesh[] = [];
   const pictureXPositions: number[] = [];
 
   stations.forEach((station, idx) => {
     const isRightSide = idx % 2 === 0;
     const xPos = +(firstPicX + idx * picStepX).toFixed(3);
-    const yPos = 2.42;
     const zPos = (isRightSide ? 1 : -1) * (wallZ - 1.55);
     // Tilt each frame ~30 degrees toward the approaching visitor so all scans are clearly visible upon entering the hallway
     const cantAngleY = isRightSide ? Math.PI + 0.52 : -0.52;
@@ -1471,61 +1571,80 @@ export async function buildMuseumRoomScene({
     frameGroup.userData.baseX = xPos;
     frameGroup.userData.baseZ = zPos;
 
+    const titleMesh = new THREE.Mesh(
+      titleGeom,
+      new THREE.MeshBasicMaterial({
+        map: createStationTitlePlateTexture(
+          station.dc_title,
+          station.display_year,
+        ),
+        side: THREE.DoubleSide,
+        fog: true,
+      }),
+    );
+    titleMesh.name = `station_label_${idx + 1}`;
+    titleMesh.position.set(0, titleCenterY, 0.02);
+    titleMesh.userData.stationData = station;
+    titleMesh.userData.stationIndex = idx;
+    titleMesh.userData.stationPicture = picMesh;
+    frameGroup.add(titleMesh);
+    stationLabelMeshes.push(titleMesh);
+
     // 4-Bar Outer Museum Frame (top, bottom, left, right)
     const topBar = new THREE.Mesh(frameHorizBarGeom, frameOuterMat);
-    topBar.position.set(0, 1.38, 0.01);
+    topBar.position.set(0, topBarY, 0.01);
     frameGroup.add(topBar);
 
     const bottomBar = new THREE.Mesh(frameHorizBarGeom, frameOuterMat);
-    bottomBar.position.set(0, -1.38, 0.01);
+    bottomBar.position.set(0, bottomBarY, 0.01);
     frameGroup.add(bottomBar);
 
     const leftBar = new THREE.Mesh(frameVertBarGeom, frameOuterMat);
-    leftBar.position.set(-1.38, 0, 0.01);
+    leftBar.position.set(-sideX, vertY, 0.01);
     frameGroup.add(leftBar);
 
     const rightBar = new THREE.Mesh(frameVertBarGeom, frameOuterMat);
-    rightBar.position.set(1.38, 0, 0.01);
+    rightBar.position.set(sideX, vertY, 0.01);
     frameGroup.add(rightBar);
 
     // 4-Bar Inner Copper-Ochre Fillet
     const topFillet = new THREE.Mesh(filletHorizBarGeom, ochreTrimMat);
-    topFillet.position.set(0, 1.295, 0.005);
+    topFillet.position.set(0, vertTop - 0.02, 0.005);
     frameGroup.add(topFillet);
 
     const bottomFillet = new THREE.Mesh(filletHorizBarGeom, ochreTrimMat);
-    bottomFillet.position.set(0, -1.295, 0.005);
+    bottomFillet.position.set(0, vertBottom + 0.02, 0.005);
     frameGroup.add(bottomFillet);
 
     const leftFillet = new THREE.Mesh(filletVertBarGeom, ochreTrimMat);
-    leftFillet.position.set(-1.295, 0, 0.005);
+    leftFillet.position.set(-(sideX - frameLip / 2 - 0.02), vertY, 0.005);
     frameGroup.add(leftFillet);
 
     const rightFillet = new THREE.Mesh(filletVertBarGeom, ochreTrimMat);
-    rightFillet.position.set(1.295, 0, 0.005);
+    rightFillet.position.set(sideX - frameLip / 2 - 0.02, vertY, 0.005);
     frameGroup.add(rightFillet);
 
-    // Recessed warm-paper backing board (z from -0.05 to -0.02, strictly behind picMesh at +0.018)
+    // Recessed warm-paper backing board, strictly behind the scan and the title plate
     const matBoard = new THREE.Mesh(matBoardBoxGeom, paperBackingMat);
-    matBoard.position.set(0, 0, -0.035);
+    matBoard.position.set(0, matY, -0.035);
     frameGroup.add(matBoard);
 
     // Two vertical gallery suspension rods rising to the picture rail
     const leftRod = new THREE.Mesh(hangingRodGeom, plinthMat);
-    leftRod.position.set(-0.98, 2.25, -0.04);
+    leftRod.position.set(-0.98, rodY, -0.04);
     frameGroup.add(leftRod);
 
     const rightRod = new THREE.Mesh(hangingRodGeom, plinthMat);
-    rightRod.position.set(0.98, 2.25, -0.04);
+    rightRod.position.set(0.98, rodY, -0.04);
     frameGroup.add(rightRod);
 
     // Overhead museum picture light bar & arm
     const lightBar = new THREE.Mesh(pictureLightBarGeom, goldTrimMat);
-    lightBar.position.set(0, 1.58, 0.16);
+    lightBar.position.set(0, topBarY + 0.18, 0.16);
     frameGroup.add(lightBar);
 
     const lightArm = new THREE.Mesh(pictureLightArmGeom, plinthMat);
-    lightArm.position.set(0, 1.54, 0.0);
+    lightArm.position.set(0, topBarY + 0.12, 0.0);
     frameGroup.add(lightArm);
 
     root.add(frameGroup);
@@ -1561,6 +1680,7 @@ export async function buildMuseumRoomScene({
     viewNode,
     camera,
     pictureMeshes,
+    stationLabelMeshes,
     pictureXPositions,
     roomConfig,
     portal1Anchor,

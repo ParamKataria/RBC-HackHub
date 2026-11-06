@@ -208,6 +208,7 @@ export interface MuseumRoomBuildResult {
   viewNode: THREE.Object3D;
   camera: THREE.PerspectiveCamera;
   pictureMeshes: THREE.Mesh[];
+  stationLabelMeshes: THREE.Mesh[];
   pictureXPositions: number[];
   roomConfig: RoomConfigMetrics;
   portal1Anchor: THREE.Object3D;

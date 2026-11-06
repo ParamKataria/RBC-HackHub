@@ -817,9 +817,12 @@ export function applyStationPictureShader(
         // Warm gallery spotlight illumination + subtle copper-ochre border sheen on hover
         float borderDist = min(min(vUv.x, 1.0 - vUv.x), min(vUv.y, 1.0 - vUv.y));
         float rimSheen = smoothstep(0.055, 0.0, borderDist) * uHover * 0.42;
-        vec3 litColor = texColor.rgb * (0.98 + 0.08 * uHover) + uAccentColor * rimSheen;
+        vec3 litColor = texColor.rgb * (1.0 + 0.06 * uHover) + uAccentColor * rimSheen;
 
         gl_FragColor = vec4(litColor, texColor.a);
+        // Match MeshBasicMaterial: encode to output color, then fog. Fogging first
+        // leaves distant scans a different cream from their title plates.
+        #include <colorspace_fragment>
         #include <fog_fragment>
       }
     `,

@@ -1342,13 +1342,18 @@ export function BccnsArchiveExperience({
 
         raycaster.setFromCamera(pointerNDC, st.activeCamera);
         const picHits = raycaster.intersectObjects(
-          st.currentRoomBuild.pictureMeshes,
+          [
+            ...st.currentRoomBuild.pictureMeshes,
+            ...st.currentRoomBuild.stationLabelMeshes,
+          ],
           false,
         );
         const validPicHit = picHits.find((h) => h.distance <= 16);
-        st.hoveredPicMesh = validPicHit
-          ? (validPicHit.object as THREE.Mesh)
-          : null;
+        const hitMesh = validPicHit ? (validPicHit.object as THREE.Mesh) : null;
+        const linkedPicture = hitMesh?.userData.stationPicture as
+          | THREE.Mesh
+          | undefined;
+        st.hoveredPicMesh = linkedPicture ?? hitMesh;
 
         st.stationShaderControllers.forEach((ctrl) => {
           ctrl.setHovered(ctrl.mesh === st.hoveredPicMesh);
