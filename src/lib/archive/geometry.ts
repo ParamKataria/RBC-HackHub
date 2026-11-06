@@ -939,6 +939,37 @@ function addArchOpeningEdge(group: THREE.Group, washHex: number | string): void 
   );
 }
 
+/**
+ * SOURCE OF TRUTH KEYWORDS: createInsetRingLedGeometry, rotunda floor ring, LED circle
+ * WHAT: Builds a flat ring whose v coordinate runs across the strip, so the floor LED shader can glow it.
+ * WHY: The rotunda light sits in from the wall as a circle, not as a line jammed into the floor edge.
+ * WHERE: buildProceduralHallScene.
+ */
+function createInsetRingLedGeometry(radius: number, width: number, segments = 160): THREE.BufferGeometry {
+  const inner = radius - width / 2;
+  const outer = radius + width / 2;
+  const positions: number[] = [];
+  const uvs: number[] = [];
+  const indices: number[] = [];
+  for (let i = 0; i <= segments; i += 1) {
+    const theta = (i / segments) * Math.PI * 2;
+    const cos = Math.cos(theta);
+    const sin = Math.sin(theta);
+    positions.push(inner * cos, 0, inner * sin, outer * cos, 0, outer * sin);
+    uvs.push(i / segments, 0, i / segments, 1);
+  }
+  for (let i = 0; i < segments; i += 1) {
+    const a = i * 2;
+    indices.push(a, a + 2, a + 1, a + 1, a + 2, a + 3);
+  }
+  const geom = new THREE.BufferGeometry();
+  geom.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+  geom.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
+  geom.setIndex(indices);
+  geom.computeVertexNormals();
+  return geom;
+}
+
 function createFloorGeometry(): THREE.CircleGeometry {
   const geom = new THREE.CircleGeometry(12.5, 72);
   geom.rotateX(-Math.PI / 2);
@@ -985,6 +1016,15 @@ export function buildProceduralHallScene(
   floorMesh.name = "FloorHall";
   floorMesh.quaternion.copy(rot20);
   root.add(floorMesh);
+
+  // Inset from the wall (inner face at 9.61) so the ring reads as a circle in the floor.
+  const rotundaRing = new THREE.Mesh(
+    createInsetRingLedGeometry(7.55, 0.38),
+    createFloorLedMaterial(),
+  );
+  rotundaRing.name = "rotunda_floor_led";
+  rotundaRing.position.y = 0.02;
+  root.add(rotundaRing);
 
   const reflectorAnchor = new THREE.Object3D();
   reflectorAnchor.name = "reflector";
