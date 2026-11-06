@@ -1260,14 +1260,17 @@ export async function buildMuseumRoomScene({
   rightFloorRule.position.set(corridorCenterX, 0.008, 2.85);
   root.add(rightFloorRule);
 
+  // Cap the gallery so the hanging wires meet a real ceiling, just above the beams.
+  const galleryCeilingY = 6.72;
+
   // 2. Solid Architectural Museum Gallery Walls (replacing open side arches)
-  const sideWallGeom = new THREE.BoxGeometry(corridorLen, 8.8, 0.36);
+  const sideWallGeom = new THREE.BoxGeometry(corridorLen, galleryCeilingY, 0.36);
   const leftWall = new THREE.Mesh(sideWallGeom, wallMat);
-  leftWall.position.set(corridorCenterX, 4.4, -wallZ);
+  leftWall.position.set(corridorCenterX, galleryCeilingY / 2, -wallZ);
   root.add(leftWall);
 
   const rightWall = new THREE.Mesh(sideWallGeom, wallMat);
-  rightWall.position.set(corridorCenterX, 4.4, wallZ);
+  rightWall.position.set(corridorCenterX, galleryCeilingY / 2, wallZ);
   root.add(rightWall);
 
   // Baseboard plinths, dado rails, and upper picture-hanging rails along both gallery walls
@@ -1296,6 +1299,19 @@ export async function buildMuseumRoomScene({
   }
 
   // Coffered Gallery Ceiling & Warm Daylight Skylight Strip
+  const ceilingMat = new THREE.MeshLambertMaterial({
+    color: 0xd9c6b0,
+    emissive: 0xcbb8a2,
+    emissiveIntensity: 0.04,
+    side: THREE.DoubleSide,
+  });
+  const ceilingGeom = new THREE.PlaneGeometry(corridorLen + 2, wallZ * 2 + 1.2);
+  ceilingGeom.rotateX(Math.PI / 2);
+  const ceiling = new THREE.Mesh(ceilingGeom, ceilingMat);
+  ceiling.name = "GalleryCeiling";
+  ceiling.position.set(corridorCenterX, galleryCeilingY, 0);
+  root.add(ceiling);
+
   const ceilingBeamStride = 7.2;
   const numCeilingBeams = Math.ceil(corridorLen / ceilingBeamStride) + 1;
   const crossBeamGeom = new THREE.BoxGeometry(0.38, 0.34, wallZ * 2 + 0.4);
@@ -1323,9 +1339,9 @@ export async function buildMuseumRoomScene({
   }
 
   // Back Entry Wall behind camera start
-  const backWallGeom = new THREE.BoxGeometry(0.4, 9.0, wallZ * 2 + 1.0);
+  const backWallGeom = new THREE.BoxGeometry(0.4, galleryCeilingY, wallZ * 2 + 1.0);
   const backWall = new THREE.Mesh(backWallGeom, wallMat);
-  backWall.position.set(startWallX, 4.5, 0);
+  backWall.position.set(startWallX, galleryCeilingY / 2, 0);
   root.add(backWall);
 
   // 3. End-of-Hallway Twin Arch Portals Wall (portal_1 -> next collection, portal_2 -> previous collection / rotunda)
@@ -1496,9 +1512,10 @@ export async function buildMuseumRoomScene({
   const matHeight = matTop - matBottom;
   const matY = (matTop + matBottom) / 2;
   const yPos = 2.98;
-  const railLocalY = 5.25 - yPos;
-  const rodBottom = topBarY + 0.04;
-  const rodLength = Math.max(0.45, railLocalY - rodBottom);
+  // Same cap as GalleryCeiling. The wire runs from the frame top into that plane.
+  const ceilingLocalY = galleryCeilingY - yPos + 0.02;
+  const rodBottom = topBarY;
+  const rodLength = Math.max(0.45, ceilingLocalY - rodBottom);
   const rodY = rodBottom + rodLength / 2;
 
   const picGeom = new THREE.PlaneGeometry(imageSize, imageSize, 24, 24);
@@ -1510,7 +1527,9 @@ export async function buildMuseumRoomScene({
   const filletHorizBarGeom = new THREE.BoxGeometry(frameOuterW - 0.28, 0.045, 0.09);
   const filletVertBarGeom = new THREE.BoxGeometry(0.045, vertHeight - 0.12, 0.09);
   const matBoardBoxGeom = new THREE.BoxGeometry(frameOuterW - 0.3, matHeight, 0.03);
-  const hangingRodGeom = new THREE.CylinderGeometry(0.012, 0.012, rodLength, 8);
+  const wireMat = new THREE.MeshBasicMaterial({ color: 0x3a2818 });
+  const hangingRodGeom = new THREE.CylinderGeometry(0.015, 0.015, rodLength, 8);
+  const ceilingCleatGeom = new THREE.BoxGeometry(0.1, 0.045, 0.1);
   const pictureLightBarGeom = new THREE.BoxGeometry(1.35, 0.055, 0.24);
   const pictureLightArmGeom = new THREE.BoxGeometry(0.06, 0.06, 0.36);
 
@@ -1629,14 +1648,19 @@ export async function buildMuseumRoomScene({
     matBoard.position.set(0, matY, -0.035);
     frameGroup.add(matBoard);
 
-    // Two vertical gallery suspension rods rising to the picture rail
-    const leftRod = new THREE.Mesh(hangingRodGeom, plinthMat);
-    leftRod.position.set(-0.98, rodY, -0.04);
-    frameGroup.add(leftRod);
+    // Two wires from the top of the frame into a cleat on the ceiling
+    for (const side of [-1, 1]) {
+      const wire = new THREE.Mesh(hangingRodGeom, wireMat);
+      wire.position.set(side * 0.98, rodY, 0.02);
+      // The wire's midpoint is above the camera view, so frustum culling drops the whole line.
+      wire.frustumCulled = false;
+      frameGroup.add(wire);
 
-    const rightRod = new THREE.Mesh(hangingRodGeom, plinthMat);
-    rightRod.position.set(0.98, rodY, -0.04);
-    frameGroup.add(rightRod);
+      const cleat = new THREE.Mesh(ceilingCleatGeom, frameOuterMat);
+      cleat.position.set(side * 0.98, ceilingLocalY, 0.02);
+      cleat.frustumCulled = false;
+      frameGroup.add(cleat);
+    }
 
     // Overhead museum picture light bar & arm
     const lightBar = new THREE.Mesh(pictureLightBarGeom, goldTrimMat);
