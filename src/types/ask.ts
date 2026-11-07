@@ -36,6 +36,9 @@ export const askCitationSchema = z.object({
   id: z.string().trim().min(1).max(80),
   title: z.string(),
   collectionKey: collectionKeySchema.optional(),
+  publisher: z.string().optional(),
+  access: z.string().optional(),
+  sourceUrl: z.string().optional(),
 });
 
 export type AskCitation = z.infer<typeof askCitationSchema>;

@@ -5,7 +5,6 @@ import { hasEnvVars } from "@/lib/utils";
 import {
   chooseChapter,
   HALL_STATION_LIMIT,
-  isPublicationDatePublisher,
   type ChapterPlacement,
 } from "@/src/lib/archive/chapters";
 import {
@@ -342,12 +341,11 @@ function placeCatalogRow(
   if (!placement) return null;
 
   const station = mapRowToStation(row);
+  // An event year written on the record wins. Otherwise keep the page or document date
+  // already read by mapRowToStation, including a 2022 ceremony date.
   if (placement.year) {
     station.sort_year = placement.year.year;
     station.display_year = placement.year.label;
-  } else if (isPublicationDatePublisher(row.dc_publisher)) {
-    station.sort_year = 10000;
-    station.display_year = "Date not recorded";
   }
   return { station, placement };
 }

@@ -2187,10 +2187,8 @@ export function BccnsArchiveExperience({
                 roomProgress,
                 activeRoomConfig,
               );
-              const yearMatch = station.display_year.match(/\b(1[6-9]\d{2}|20\d{2})\b/);
-              const yearLabel = yearMatch
-                ? yearMatch[1]
-                : String(station.sort_year);
+              const yearMatch = station.display_year.match(/\b(1[6-9]\d{2}|20[0-2]\d)\b/);
+              const yearLabel = yearMatch ? yearMatch[1] : "Undated";
               return (
                 <button
                   key={station.id}
