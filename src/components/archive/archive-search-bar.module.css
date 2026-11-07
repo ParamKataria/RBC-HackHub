@@ -5,6 +5,7 @@
   background: hsl(var(--card));
   color: hsl(var(--foreground));
   transition: border-color 160ms ease;
+  width: 100%;
 }
 
 .ask:focus-within {
@@ -62,7 +63,7 @@
   border-radius: 999px;
   background: hsl(var(--primary));
   transform-origin: center;
-  animation: catalogAskWave 0.9s ease-in-out infinite;
+  animation: searchBarWave 0.9s ease-in-out infinite;
 }
 
 .wave i:nth-child(2) {
@@ -81,7 +82,7 @@
   animation-delay: 0.48s;
 }
 
-@keyframes catalogAskWave {
+@keyframes searchBarWave {
   0%,
   100% {
     transform: scaleY(0.55);
@@ -158,10 +159,40 @@
   color: hsl(var(--foreground));
 }
 
+.ctaRow {
+  margin-top: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.ctaButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  border-radius: 999px;
+  border: 1px solid hsl(var(--border));
+  background: hsl(var(--secondary));
+  color: hsl(var(--secondary-foreground));
+  font-family: inherit;
+  font-size: 0.875rem;
+  font-weight: 500;
+  text-decoration: none;
+  transition: background-color 150ms ease, border-color 150ms ease;
+}
+
+.ctaButton:hover {
+  background: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+  border-color: hsl(var(--primary));
+}
+
 @media (prefers-reduced-motion: reduce) {
   .ask,
   .wave,
-  .dismiss {
+  .dismiss,
+  .ctaButton {
     transition: none;
   }
 

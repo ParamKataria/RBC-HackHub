@@ -86,6 +86,20 @@ Never skip a feature or leave it incomplete. If pieces are missing, because you 
 
 Don't use git unless told.
 
+## Agent skills
+
+### Issue tracker
+
+Local markdown files under `.scratch/<feature-slug>/` (untracked by git). See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Default five canonical triage roles (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`). See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context layout (`GLOSSARY.md` at repo root and `docs/adr/`). See `docs/agents/domain.md`.
+
 <!-- BEGIN:nextjs-agent-rules -->
 
 ## This is NOT the Next.js you know

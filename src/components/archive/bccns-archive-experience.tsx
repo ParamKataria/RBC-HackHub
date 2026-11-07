@@ -7,7 +7,9 @@ import { BsStars } from "react-icons/bs";
 import * as THREE from "three";
 import { Reflector } from "three/examples/jsm/objects/Reflector.js";
 import { archiveEffects, archiveGeometry } from "@/src/lib/archive";
-import { ArchiveAsk, type ArchiveGlance } from "@/src/components/archive/archive-ask";
+import { ArchiveSearchBar } from "@/src/components/archive/archive-search-bar";
+import { ImmersiveArchiveHUD } from "@/src/components/archive/immersive-archive-hud";
+import type { ArchiveGlance } from "@/src/types";
 import type {
   AppMode,
   ArchiveCollection,
@@ -2002,7 +2004,7 @@ export function BccnsArchiveExperience({
           </button>
         </WordmarkTag>
 
-        <ArchiveAsk view={settledNote?.view ?? null} glance={settledNote} />
+        <ImmersiveArchiveHUD view={settledNote?.view ?? null} glance={settledNote} />
 
         <nav className="bccns-top-actions" aria-label="Archive navigation">
           <button
@@ -2909,7 +2911,7 @@ export function BccnsArchiveExperience({
                 <p className="bccns-arrival-copy">
                   Ask about a chapter, a place, or a record. The answer stays tied to the holdings.
                 </p>
-                <ArchiveAsk placement="view" view={null} glance={null} />
+                <ArchiveSearchBar autoNavigate={false} showCatalogCta={true} />
                 <div className="bccns-arrival-actions">
                   <button
                     type="button"

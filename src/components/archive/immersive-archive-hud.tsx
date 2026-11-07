@@ -3,14 +3,11 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 
 import { ArchiveAnswer, requestArchiveAnswer } from "@/src/components/archive/archive-answer";
-import { askQuestionSchema, type AskResponse, type AskView } from "@/src/types";
-
-export interface ArchiveGlance {
-  id: string;
-  kicker: string;
-  title: string;
-  body: string;
-}
+import {
+  askQuestionSchema,
+  type AskResponse,
+  type ImmersiveArchiveHUDProps,
+} from "@/src/types";
 
 interface ThreadAnswer {
   id: string;
@@ -20,20 +17,16 @@ interface ThreadAnswer {
 }
 
 /**
- * SOURCE OF TRUTH KEYWORDS: ArchiveAsk, settled glance, spring expand, search stays on top
- * WHAT: Header question field that drops open with a short note once a door or record has settled.
- * WHY: The sheet keeps the room motion. The answer itself comes from ArchiveAnswer, limited to two claims.
- * WHERE: BccnsArchiveExperience top bar.
+ * SOURCE OF TRUTH KEYWORDS: ImmersiveArchiveHUD, settled glance, 3D rotunda search, room record scoping
+ * WHAT: Ambient HUD controller and search bar floating in the 3D digital archive top navigation bar.
+ * WHY: Enables visitors to inspect room/record glances and ask scoped questions with concise 2-claim summaries.
+ * WHERE: Mounted in BccnsArchiveExperience top navigation bar.
  */
-export function ArchiveAsk({
-  view,
-  glance,
+export function ImmersiveArchiveHUD({
+  view = null,
+  glance = null,
   placement = "header",
-}: {
-  view: AskView | null;
-  glance: ArchiveGlance | null;
-  placement?: "header" | "view";
-}) {
+}: ImmersiveArchiveHUDProps) {
   const [question, setQuestion] = useState("");
   const [focused, setFocused] = useState(false);
   const [clearingQuestion, setClearingQuestion] = useState(false);
@@ -42,6 +35,12 @@ export function ArchiveAsk({
   const [closing, setClosing] = useState(false);
   const closingTargetRef = useRef<{ clearAnswers: boolean; glanceId: string | null } | null>(null);
 
+  /**
+   * SOURCE OF TRUTH KEYWORDS: askScopedArchiveInquiry, requestArchiveAnswer, AskView, ImmersiveArchiveHUD
+   * WHAT: Evaluates natural-language questions scoped to the visitor's active room or record.
+   * WHY: Obtains grounded answers limited to 2 claims without interrupting 3D rotunda navigation.
+   * WHERE: ImmersiveArchiveHUD top bar inquiry submission.
+   */
   const ask = async (rawQuestion: string) => {
     const parsedQuestion = askQuestionSchema.safeParse({ question: rawQuestion });
     const id = crypto.randomUUID();
@@ -72,6 +71,12 @@ export function ArchiveAsk({
     }
   };
 
+  /**
+   * SOURCE OF TRUTH KEYWORDS: onSubmitImmersiveHUD, FormEvent, askQuestion, ImmersiveArchiveHUD
+   * WHAT: Handles the form submit event for the floating HUD search field.
+   * WHY: Triggers scoped question parsing and marks inquiry submission state.
+   * WHERE: ImmersiveArchiveHUD form element.
+   */
   const onSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const asked = question;
@@ -91,7 +96,7 @@ export function ArchiveAsk({
       setGlanceOpen(false);
       return;
     }
-    setHeldGlance(glance);
+    setHeldGlance((prev) => (prev?.id === glance.id ? prev : glance));
     setGlanceOpen(false);
   }, [glance]);
 
@@ -103,14 +108,27 @@ export function ArchiveAsk({
   }, [glance, glanceOpen, heldGlance]);
 
   const pending = answers.some((item) => item.pending);
-  const shownAnswer = [...answers].reverse().find((item) => !item.pending && (item.result || item.error)) ?? null;
+  const shownAnswer =
+    [...answers].reverse().find((item) => !item.pending && (item.result || item.error)) ?? null;
 
+  /**
+   * SOURCE OF TRUTH KEYWORDS: openGlanceDetails, heldGlance, glanceOpen, ImmersiveArchiveHUD
+   * WHAT: Expands the settled chapter or record glance note sheet.
+   * WHY: Allows visitors to inspect station details when approaching exhibits.
+   * WHERE: ImmersiveArchiveHUD info badge click and input focus handler.
+   */
   const openDetails = () => {
     if (!glance) return;
     setHeldGlance(glance);
     setGlanceOpen(true);
   };
 
+  /**
+   * SOURCE OF TRUTH KEYWORDS: clearCurrentHUDAnswer, resetGlanceState, closingTargetRef, ImmersiveArchiveHUD
+   * WHAT: Clears open inquiry answers or collapses the glance note panel.
+   * WHY: Provides a dismiss control to return the floating search bar to its compact resting state.
+   * WHERE: ImmersiveArchiveHUD dismiss button click listener.
+   */
   const clearCurrent = () => {
     if (closing) return;
     if (shownAnswer && glance) {
@@ -143,12 +161,6 @@ export function ArchiveAsk({
   const [infoShown, setInfoShown] = useState(false);
   const [textShown, setTextShown] = useState(false);
 
-  /**
-   * SOURCE OF TRUTH KEYWORDS: info fade, text fade, ArchiveAsk, glance indicator
-   * WHAT: Fades the info mark in and out, and fades the note only after the sheet has opened.
-   * WHY: Unmounting the mark skips the fade, and fading the note while the sheet height is still zero makes the words pop in.
-   * WHERE: ArchiveAsk header search.
-   */
   useEffect(() => {
     if (!infoWanted) {
       setInfoShown(false);
@@ -181,6 +193,7 @@ export function ArchiveAsk({
     const timer = window.setTimeout(() => setTextShown(true), reduceMotion ? 0 : 280);
     return () => window.clearTimeout(timer);
   }, [expanded]);
+
   const surfaceClass = [
     "bccns-siri",
     focused ? "is-focused" : "",
@@ -191,6 +204,13 @@ export function ArchiveAsk({
   ]
     .filter((name) => name.length > 0)
     .join(" ");
+
+  const placeholder =
+    view?.scope === "record"
+      ? "Ask about this record"
+      : view?.scope === "room"
+        ? "Ask about this room"
+        : "Ask the archive";
 
   return (
     <div className={placement === "view" ? "bccns-header-search bccns-ask-view-search" : "bccns-header-search"}>
@@ -204,15 +224,8 @@ export function ArchiveAsk({
           <input
             id="archiveSearch"
             type="search"
-            placeholder={
-              view?.scope === "record"
-                ? "Ask about this record"
-                : view?.scope === "room"
-                  ? "Ask about this room"
-                  : "Ask the archive"
-            }
-            aria-label="Ask the archive"
-            aria-expanded={expanded}
+            placeholder={placeholder}
+            aria-label={placeholder}
             autoComplete="off"
             className={clearingQuestion ? "is-clearing" : undefined}
             value={question}
@@ -258,7 +271,7 @@ export function ArchiveAsk({
                   aria-label="Close details"
                   onClick={clearCurrent}
                 >
-                  ×
+                  &times;
                 </button>
               )}
             </span>

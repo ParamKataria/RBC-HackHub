@@ -24,10 +24,11 @@ Auth pages from the starter remain at `/auth/login`, `/auth/sign-up`, `/auth/for
 | `q` | Full text on title, description, subject, place, and community |
 | `institution` | `dc_publisher` |
 | `type` | Controlled `dc_type` value, such as `map` or `research guide` |
+| `creator` | Text in `dc_creator` |
 | `subject` | A value in `dc_subject` |
 | `place` | Text in `dcterms_spatial` |
-| `from` | `dc_date` on or after `YYYY-MM-DD` |
-| `to` | `dc_date` on or before `YYYY-MM-DD` |
+| `from` | Historical date interval (`dc_date`, `date_text`, or `dcterms_temporal`) overlapping on or after `YYYY` or `YYYY-MM-DD` |
+| `to` | Historical date interval (`dc_date`, `date_text`, or `dcterms_temporal`) overlapping on or before `YYYY` or `YYYY-MM-DD` |
 
 Examples:
 

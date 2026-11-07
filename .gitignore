@@ -45,3 +45,7 @@ next-env.d.ts
 .agents/
 skills-lock.json
 .tastemaker
+
+# Agent skill tracking & local scratch issues (untracked)
+.scratch/
+docs/agents/
