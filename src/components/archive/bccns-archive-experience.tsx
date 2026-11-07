@@ -202,16 +202,29 @@ function isSharedHallTexture(tex: THREE.Texture | null, st: { textures: { noise:
   );
 }
 
-function disposeMaterial(mat: THREE.Material, st: { textures: { noise: THREE.Texture | null; platform: THREE.Texture | null; floor: THREE.Texture | null; rotundaPreview: THREE.Texture | null; previewsByCollection: Partial<Record<string, THREE.Texture | null>> } | null }): void {
+interface UniformTextureEntry {
+  value?: THREE.Texture | THREE.Texture[] | object | string | number | boolean | null;
+}
+
+interface MaterialWithUniforms {
+  uniforms?: Record<string, UniformTextureEntry>;
+}
+
+interface MaterialTextureHolder {
+  [key: string]: THREE.Texture | THREE.Texture[] | object | string | number | boolean | null | undefined;
+}
+
+function disposeMaterial(mat: THREE.Material, st: { textures: LoadedHallTextures | null }): void {
   // Dispose textures bound in uniforms (ShaderMaterial)
-  if ((mat as any).uniforms) {
-    for (const key of Object.keys((mat as any).uniforms)) {
-      const u = (mat as any).uniforms[key];
+  const matUniforms = (mat as MaterialWithUniforms).uniforms;
+  if (matUniforms) {
+    for (const key of Object.keys(matUniforms)) {
+      const u = matUniforms[key];
       if (u && u.value instanceof THREE.Texture && !isSharedHallTexture(u.value, st)) {
         u.value.dispose();
       }
       if (u && Array.isArray(u.value)) {
-        u.value.forEach((v: any) => {
+        u.value.forEach((v) => {
           if (v instanceof THREE.Texture && !isSharedHallTexture(v, st)) {
             v.dispose();
           }
@@ -221,13 +234,14 @@ function disposeMaterial(mat: THREE.Material, st: { textures: { noise: THREE.Tex
   }
 
   // Dispose textures bound directly on the material (map, alphaMap, etc.)
+  const matHolder = mat as unknown as MaterialTextureHolder;
   for (const key of Object.keys(mat)) {
-    const val = (mat as any)[key];
+    const val = matHolder[key];
     if (val instanceof THREE.Texture && !isSharedHallTexture(val, st)) {
       val.dispose();
     }
     if (Array.isArray(val)) {
-      val.forEach((v: any) => {
+      val.forEach((v) => {
         if (v instanceof THREE.Texture && !isSharedHallTexture(v, st)) {
           v.dispose();
         }
@@ -238,7 +252,7 @@ function disposeMaterial(mat: THREE.Material, st: { textures: { noise: THREE.Tex
   mat.dispose();
 }
 
-function disposeSceneTree(obj: THREE.Object3D, st: { textures: { noise: THREE.Texture | null; platform: THREE.Texture | null; floor: THREE.Texture | null; rotundaPreview: THREE.Texture | null; previewsByCollection: Partial<Record<string, THREE.Texture | null>> } | null }): void {
+function disposeSceneTree(obj: THREE.Object3D, st: { textures: LoadedHallTextures | null }): void {
   obj.traverse((child) => {
     if (child instanceof THREE.Mesh) {
       if (child.geometry) {
@@ -255,15 +269,15 @@ function disposeSceneTree(obj: THREE.Object3D, st: { textures: { noise: THREE.Te
 }
 
 function disposeEngineResources(st: {
-  energyControllers: any[];
-  lightControllers: any[];
-  previewControllers: any[];
-  stationShaderControllers: any[];
-  roomFaderController: { mesh: THREE.Mesh } | null;
+  energyControllers: PortalEnergyController[];
+  lightControllers: PortalLightsController[];
+  previewControllers: PortalPreviewController[];
+  stationShaderControllers: StationPictureShaderController[];
+  roomFaderController: CameraFaderController | null;
   floorReflectors: Reflector[];
   interactivePortalMeshes: THREE.Mesh[];
   roomPortalMeshes: THREE.Mesh[];
-  textures: { noise: THREE.Texture | null; platform: THREE.Texture | null; floor: THREE.Texture | null; rotundaPreview: THREE.Texture | null; previewsByCollection: Partial<Record<string, THREE.Texture | null>> } | null;
+  textures: LoadedHallTextures | null;
 }): void {
   // Energy controllers (PortalEnergyField ShaderMaterial meshes)
   st.energyControllers.forEach((ctrl) => {
@@ -273,7 +287,7 @@ function disposeEngineResources(st: {
         const mats = Array.isArray(ctrl.mesh.material)
           ? ctrl.mesh.material
           : [ctrl.mesh.material];
-        mats.forEach((m: any) => disposeMaterial(m, st));
+        mats.forEach((m) => disposeMaterial(m, st));
       }
     }
     if (ctrl.material) disposeMaterial(ctrl.material, st);
@@ -288,7 +302,7 @@ function disposeEngineResources(st: {
         const mats = Array.isArray(ctrl.mesh.material)
           ? ctrl.mesh.material
           : [ctrl.mesh.material];
-        mats.forEach((m: any) => disposeMaterial(m, st));
+        mats.forEach((m) => disposeMaterial(m, st));
       }
     }
     if (ctrl.material) disposeMaterial(ctrl.material, st);
@@ -303,7 +317,7 @@ function disposeEngineResources(st: {
         const mats = Array.isArray(ctrl.mesh.material)
           ? ctrl.mesh.material
           : [ctrl.mesh.material];
-        mats.forEach((m: any) => disposeMaterial(m, st));
+        mats.forEach((m) => disposeMaterial(m, st));
       }
     }
     if (ctrl.material) disposeMaterial(ctrl.material, st);
@@ -318,7 +332,7 @@ function disposeEngineResources(st: {
       const mats = Array.isArray(mesh.material)
         ? mesh.material
         : [mesh.material];
-      mats.forEach((m: any) => disposeMaterial(m, st));
+      mats.forEach((m) => disposeMaterial(m, st));
     }
   }
   st.roomFaderController = null;
@@ -378,7 +392,7 @@ export function BccnsArchiveExperience({
     useState<CollectionKey>("slavery_and_halifax");
 
   const [roomProgress, setRoomProgress] = useState<number>(0);
-  const [activeStationIndex, setActiveStationIndex] = useState<number>(0);
+  const [, setActiveStationIndex] = useState<number>(0);
   const [activeRoomConfig, setActiveRoomConfig] =
     useState<RoomConfigMetrics | null>(null);
 
@@ -2023,8 +2037,6 @@ export function BccnsArchiveExperience({
   const activeCollection: ArchiveCollection =
     collections.find((c) => c.key === currentCollectionKey) ?? collections[0];
   const activeStations = activeCollection?.stations ?? [];
-  const currentHeaderStation =
-    activeStations[activeStationIndex] ?? activeStations[0];
   const copyRecordDeepLink = async () => {
     if (!selectedRecordModal || typeof window === "undefined") return;
     const url = new URL(window.location.href);

@@ -2,13 +2,16 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
+import { FiFilter } from "react-icons/fi";
 
 import { ArchiveAnswer, requestArchiveAnswer } from "@/src/components/archive/archive-answer";
 import styles from "@/src/components/archive/archive-search-bar.module.css";
 import {
   type ArchiveSearchBarProps,
   type AskResponse,
+  type ModeSwitchOptions,
+  type SearchMode,
   type SearchQuery,
 } from "@/src/types";
 
@@ -67,26 +70,106 @@ export function clearCatalogSearchParams(currentSearch: string): string {
 }
 
 /**
- * SOURCE OF TRUTH KEYWORDS: ArchiveSearchBar, ArchiveSearchBarProps, initialQuestion, shared search bar, AI inquiry, filterHref
- * WHAT: Global reusable search bar for Ask the Archive across Catalog and Home page views.
- * WHY: Unifies natural-language inquiries, loading animations, grounded citation panels, and URL query synchronization without storage leakage.
+ * SOURCE OF TRUTH KEYWORDS: defaultKeywordPlaceholder, defaultAiPlaceholder, searchPlaceholders, searchModeDefaults, dualModeSearch
+ * WHAT: Standard placeholder strings for keyword catalog search and plain-language AI archival inquiries.
+ * WHY: Guides visitors on appropriate query phrasing according to active search mode per User Stories 7 and 8.
+ * WHERE: ArchiveSearchBar input placeholder resolution.
+ */
+const defaultKeywordPlaceholder =
+  "Search title, description, subject, place, or community...";
+const defaultAiPlaceholder = "Ask a question in plain language...";
+
+/**
+ * SOURCE OF TRUTH KEYWORDS: handleRadioArrowNavigation, accessibleRadioGroup, arrowKeyNavigation, rovingTabindexFocus, waiAriaRadio
+ * WHAT: Determines target search mode and triggers imperative button focus when arrow keys navigate within the mode radio group.
+ * WHY: Adheres to WAI-ARIA radio group keyboard pattern by shifting active selection and DOM focus on Arrow keys.
+ * WHERE: ArchiveSearchBar radio button onKeyDown handlers and accessibility unit tests.
+ */
+export function handleRadioArrowNavigation(
+  key: string,
+  callbacks: {
+    switchMode: (mode: SearchMode) => void;
+    focusKeyword: () => void;
+    focusAi: () => void;
+  },
+): boolean {
+  if (key === "ArrowLeft" || key === "ArrowUp") {
+    callbacks.switchMode("keyword");
+    callbacks.focusKeyword();
+    return true;
+  }
+  if (key === "ArrowRight" || key === "ArrowDown") {
+    callbacks.switchMode("ai");
+    callbacks.focusAi();
+    return true;
+  }
+  return false;
+}
+
+/**
+ * SOURCE OF TRUTH KEYWORDS: handleModeSwitch, SearchMode, dualModeSearch, modeToggle, filterPanelCollapse, aiModeSuppression, ModeSwitchOptions
+ * WHAT: Determines search mode transitions, dismissing AI results when switching to keyword mode and auto-collapsing open filter panels when switching to AI mode.
+ * WHY: Provides a deterministic, testable seam that ensures Ticket 02 mode-switching contracts are maintained without UI side-effects.
+ * WHERE: ArchiveSearchBar switchMode callback and ask-search-verification tests.
+ */
+export function handleModeSwitch(
+  currentMode: SearchMode,
+  newMode: SearchMode,
+  options: ModeSwitchOptions,
+): boolean {
+  if (newMode === currentMode) {
+    return false;
+  }
+  if (newMode === "keyword") {
+    options.clearAiResults?.();
+  } else if (newMode === "ai") {
+    if (options.filterPanelOpen) {
+      if (options.onCloseFilterPanel) {
+        options.onCloseFilterPanel();
+      } else {
+        options.onToggleFilterPanel?.();
+      }
+    }
+  }
+  return true;
+}
+
+/**
+ * SOURCE OF TRUTH KEYWORDS: ArchiveSearchBar, ArchiveSearchBarProps, enableFilterPill, filterPanelOpen, activeFilterCount, dualModeSearch
+ * WHAT: Global reusable search bar supporting dual-mode database keyword search, integrated filter pill, and natural-language AI archival inquiries.
+ * WHY: Unifies keyword catalog exploration and AI claim synthesis with query retention, URL synchronization, and accessible mode and filter toggles.
  * WHERE: Rendered on the /catalog route and the Home page arrival gate screen.
  */
 export function ArchiveSearchBar({
   autoNavigate = false,
   showCatalogCta = false,
   initialQuestion,
-  placeholder = "Ask the archive",
+  placeholder,
   claimLimit,
   className,
+  enableModeToggle = false,
+  defaultMode,
+  currentFilters,
+  enableFilterPill = false,
+  filterPanelOpen = false,
+  activeFilterCount,
+  onToggleFilterPanel,
+  onCloseFilterPanel,
+  onQuestionChange,
   onAnswer,
   onClear,
 }: ArchiveSearchBarProps) {
   const router = useRouter();
+  const initialEffectiveMode: SearchMode =
+    defaultMode ?? (enableModeToggle ? "keyword" : "ai");
+  const [mode, setMode] = useState<SearchMode>(initialEffectiveMode);
   const [question, setQuestion] = useState(initialQuestion ?? "");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<AskResponse | null>(null);
+
+  const keywordRadioRef = useRef<HTMLButtonElement | null>(null);
+  const aiRadioRef = useRef<HTMLButtonElement | null>(null);
 
   /**
    * SOURCE OF TRUTH KEYWORDS: syncInitialQuestion, initialQuestion, ArchiveSearchBar, routeSync, emptyQuerySync
@@ -99,10 +182,50 @@ export function ArchiveSearchBar({
   }, [initialQuestion]);
 
   /**
+   * SOURCE OF TRUTH KEYWORDS: switchMode, dualModeSearch, modeToggle, queryRetention, panelDismissal
+   * WHAT: Switches active search mode between database keyword search and AI archival inquiries.
+   * WHY: Preserves drafted query text in memory while dismissing open AI answer panels when returning to keyword mode.
+   * WHERE: ArchiveSearchBar mode toggle click and CTA prompt activation.
+   */
+  const switchMode = (newMode: SearchMode) => {
+    const switched = handleModeSwitch(mode, newMode, {
+      filterPanelOpen,
+      onToggleFilterPanel,
+      onCloseFilterPanel,
+      clearAiResults: () => {
+        setResult(null);
+        setError(null);
+      },
+    });
+    if (switched) {
+      setMode(newMode);
+    }
+  };
+
+  /**
+   * SOURCE OF TRUTH KEYWORDS: handleRadioKeyDown, accessibleRadioGroup, arrowKeyNavigation, modeToggleKeyNav, searchAccessibility, rovingTabindexFocus
+   * WHAT: Handles keyboard arrow navigation for the accessible mode toggle radiogroup.
+   * WHY: Satisfies WAI-ARIA radio group keyboard pattern by navigating between Keyword and AI modes and imperatively shifting DOM focus.
+   * WHERE: Mode toggle radio button onKeyDown handlers in ArchiveSearchBar.
+   */
+  const handleRadioKeyDown = (
+    event: React.KeyboardEvent<HTMLButtonElement>,
+  ) => {
+    const handled = handleRadioArrowNavigation(event.key, {
+      switchMode,
+      focusKeyword: () => keywordRadioRef.current?.focus(),
+      focusAi: () => aiRadioRef.current?.focus(),
+    });
+    if (handled) {
+      event.preventDefault();
+    }
+  };
+
+  /**
    * SOURCE OF TRUTH KEYWORDS: askArchiveInquiry, requestArchiveAnswer, askResult, autoNavigate, filterHref
    * WHAT: Executes the plain-language archive inquiry against the backend service.
    * WHY: Fetches grounded summaries and updates isolated React state and optional URL navigation.
-   * WHERE: Triggered by user form submission inside ArchiveSearchBar.
+   * WHERE: Triggered by user form submission inside ArchiveSearchBar in AI mode.
    */
   const ask = async (rawQuestion: string) => {
     const trimmed = rawQuestion.trim();
@@ -135,13 +258,24 @@ export function ArchiveSearchBar({
 
   /**
    * SOURCE OF TRUTH KEYWORDS: onSubmitAskForm, FormEvent, rawQuestion, ArchiveSearchBar, submitButton
-   * WHAT: Handles form submission event and initiates the archive inquiry.
-   * WHY: Prevents browser page reload and duplicate in-flight requests while triggering asynchronous question evaluation.
+   * WHAT: Handles form submission event for either keyword navigation or AI inquiry evaluation.
+   * WHY: In keyword mode navigates to /catalog preserving secondary filters; in AI mode dispatches grounded inquiry request.
    * WHERE: ArchiveSearchBar form onSubmit listener and submit button click/touch trigger.
    */
   const onSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (pending) {
+      return;
+    }
+    if (enableModeToggle && mode === "keyword") {
+      const trimmed = question.trim();
+      const currentSearch =
+        typeof window !== "undefined" ? window.location.search : "";
+      const targetUrl = mergeCatalogSearchParams(currentSearch, {
+        ...(currentFilters ?? {}),
+        q: trimmed,
+      });
+      router.push(targetUrl);
       return;
     }
     void ask(question);
@@ -157,6 +291,7 @@ export function ArchiveSearchBar({
     setResult(null);
     setError(null);
     setQuestion("");
+    onQuestionChange?.("");
     onClear?.();
     if (autoNavigate && typeof window !== "undefined") {
       const currentParams = new URLSearchParams(window.location.search);
@@ -168,33 +303,81 @@ export function ArchiveSearchBar({
   };
 
   const open = result !== null || error !== null;
-  const containerClass = className ? `${styles.ask} ${className}` : styles.ask;
+  const isKeyword = mode === "keyword";
+  const activePlaceholder =
+    placeholder &&
+    placeholder !== defaultKeywordPlaceholder &&
+    placeholder !== defaultAiPlaceholder
+      ? placeholder
+      : isKeyword
+        ? defaultKeywordPlaceholder
+        : defaultAiPlaceholder;
 
-  return (
-    <div className={containerClass} role={open ? "region" : undefined} aria-label="Archive answer">
-      <form className={`${styles.form}${pending ? ` ${styles.pending}` : ""}`} onSubmit={onSubmit}>
+  const rootClass = className
+    ? `${styles.container} ${className}`
+    : styles.container;
+
+  const searchInputBlock = (
+    <div
+      className={styles.ask}
+      role={open ? "region" : undefined}
+      aria-label={open ? "Archive answer" : undefined}
+    >
+      <form
+        className={`${styles.form}${pending ? ` ${styles.pending}` : ""}`}
+        onSubmit={onSubmit}
+      >
         <button
           type="submit"
           className={styles.submitButton}
-          aria-label="Submit inquiry"
+          aria-label={
+            enableModeToggle && isKeyword
+              ? "Search catalog"
+              : "Submit inquiry"
+          }
           disabled={pending}
         >
-          <svg className={styles.icon} viewBox="0 0 24 24" aria-hidden="true">
-            <circle cx="10.5" cy="10.5" r="6.25" fill="none" stroke="currentColor" strokeWidth="1.75" />
-            <path d="M15.2 15.2 L20 20" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
+          <svg
+            className={styles.icon}
+            viewBox="0 0 24 24"
+            aria-hidden="true"
+          >
+            <circle
+              cx="10.5"
+              cy="10.5"
+              r="6.25"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.75"
+            />
+            <path
+              d="M15.2 15.2 L20 20"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.75"
+              strokeLinecap="round"
+            />
           </svg>
         </button>
         <input
           className={styles.input}
           type="search"
-          placeholder={placeholder}
-          aria-label={placeholder}
+          placeholder={activePlaceholder}
+          aria-label={activePlaceholder}
           autoComplete="off"
           value={question}
-          onChange={(event) => setQuestion(event.target.value)}
+          onChange={(event) => {
+            setQuestion(event.target.value);
+            onQuestionChange?.(event.target.value);
+          }}
         />
         {open && !pending ? (
-          <button type="button" className={styles.dismiss} aria-label="Close answer" onClick={clearAnswer}>
+          <button
+            type="button"
+            className={styles.dismiss}
+            aria-label="Close answer"
+            onClick={clearAnswer}
+          >
             Close
           </button>
         ) : null}
@@ -214,13 +397,90 @@ export function ArchiveSearchBar({
               <ArchiveAnswer result={result} claimLimit={claimLimit} />
               {showCatalogCta ? (
                 <div className={styles.ctaRow}>
-                  <Link href={filterHref(result.filters)} className={styles.ctaButton}>
+                  <Link
+                    href={filterHref(result.filters)}
+                    className={styles.ctaButton}
+                  >
                     Explore matching records in Catalog &rarr;
                   </Link>
                 </div>
               ) : null}
             </>
           ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
+
+  return (
+    <div className={rootClass}>
+      {enableModeToggle && (
+        <div
+          className={styles.modeToggle}
+          role="radiogroup"
+          aria-label="Search mode"
+        >
+          <button
+            ref={keywordRadioRef}
+            type="button"
+            role="radio"
+            aria-checked={isKeyword}
+            tabIndex={isKeyword ? 0 : -1}
+            className={`${styles.modeButton}${isKeyword ? ` ${styles.activeMode}` : ""}`}
+            onClick={() => switchMode("keyword")}
+            onKeyDown={handleRadioKeyDown}
+          >
+            Keyword Search
+          </button>
+          <button
+            ref={aiRadioRef}
+            type="button"
+            role="radio"
+            aria-checked={!isKeyword}
+            tabIndex={!isKeyword ? 0 : -1}
+            className={`${styles.modeButton}${!isKeyword ? ` ${styles.activeMode}` : ""}`}
+            onClick={() => switchMode("ai")}
+            onKeyDown={handleRadioKeyDown}
+          >
+            Ask AI
+          </button>
+        </div>
+      )}
+
+      {enableFilterPill && isKeyword ? (
+        <div className={styles.searchRow}>
+          {searchInputBlock}
+          <button
+            type="button"
+            className={styles.filterPill}
+            aria-expanded={filterPanelOpen ?? false}
+            aria-controls="catalog-filters-panel"
+            aria-label={`Filters${activeFilterCount && activeFilterCount > 0 ? ` (${activeFilterCount} active)` : ""}`}
+            onClick={onToggleFilterPanel}
+          >
+            <FiFilter className={styles.filterIcon} aria-hidden="true" />
+            <span>Filters</span>
+            {activeFilterCount && activeFilterCount > 0 ? (
+              <span className={styles.filterBadge} data-testid="search-bar-filter-badge">
+                ({activeFilterCount})
+              </span>
+            ) : null}
+          </button>
+        </div>
+      ) : (
+        searchInputBlock
+      )}
+
+      {enableModeToggle && isKeyword ? (
+        <div className={styles.modeCta}>
+          <button
+            type="button"
+            className={styles.ctaPrompt}
+            onClick={() => switchMode("ai")}
+          >
+            Looking for answers in plain language?{" "}
+            <span className={styles.ctaPromptHighlight}>Switch to Ask AI</span>
+          </button>
         </div>
       ) : null}
     </div>
