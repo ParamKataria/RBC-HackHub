@@ -1,0 +1,47 @@
+.totals,
+.record,
+.empty {
+  border-radius: 20px;
+}
+
+.stat {
+  transition: background-color 160ms ease;
+}
+
+.totals,
+.record,
+.empty {
+  border: 1px solid hsl(var(--border));
+  background: hsl(var(--card));
+}
+
+.record,
+.pageLink {
+  transition: background-color 160ms ease, border-color 160ms ease, color 160ms ease;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .stat:hover {
+    background: hsl(var(--background));
+  }
+
+  .record:hover {
+    border-color: hsl(var(--primary));
+    background: hsl(var(--background));
+  }
+
+  .record:hover h2 a {
+    color: hsl(var(--primary));
+  }
+}
+
+.pageLink {
+  border-radius: 999px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .record,
+  .pageLink {
+    transition: none;
+  }
+}

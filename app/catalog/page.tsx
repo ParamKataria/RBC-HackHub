@@ -14,9 +14,9 @@ import type { CatalogPageProps } from "@/src/types";
 export default function CatalogPage({ searchParams }: CatalogPageProps) {
   return (
     <main className="min-h-screen bg-background text-foreground">
-      <nav className="flex h-16 items-center justify-center border-b border-border">
-        <div className="flex w-full max-w-5xl items-center justify-between px-5 text-sm">
-          <Link href="/catalog" className="font-semibold">
+      <nav className="border-b border-border">
+        <div className="mx-auto flex h-16 w-full max-w-5xl items-center justify-between px-5 text-sm">
+          <Link href="/catalog" className="font-serif text-xl text-foreground">
             BCCNS catalog
           </Link>
           <div className="flex items-center gap-4">

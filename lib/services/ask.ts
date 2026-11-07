@@ -10,14 +10,15 @@ import {
 } from "@/src/types/ask";
 import type { CatalogRecord } from "@/src/types/catalog";
 import type { CollectionKey } from "@/src/types/museum";
-import { recordTypeValues, searchQuerySchema, type SearchQuery, type SearchResponse } from "@/src/types/search";
+import { recordTypeValues, searchQuerySchema, type SearchQuery } from "@/src/types/search";
 import { z } from "zod";
 
 import { getArchivePayload } from "./archive";
 import { recordsByIds, searchRecords } from "./search";
 
-const EVIDENCE_LIMIT = 32;
-const EVIDENCE_POOL = 80;
+const EVIDENCE_LIMIT = 16;
+const EVIDENCE_POOL = 40;
+const VOCABULARY_TTL_MS = 5 * 60 * 1000;
 
 const MODELS = ["gemini-3.1-flash-lite", "gemini-3.5-flash-lite", "gemini-3.8-flash"];
 
@@ -25,16 +26,6 @@ const RECORD_ID_PATTERN =
   /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
 
 const nameRowsSchema = z.array(z.object({ name: z.string() }));
-
-const filterDraftSchema = z.object({
-  q: z.string().nullable().optional(),
-  institution: z.string().nullable().optional(),
-  type: z.string().nullable().optional(),
-  subject: z.string().nullable().optional(),
-  place: z.string().nullable().optional(),
-  from: z.string().nullable().optional(),
-  to: z.string().nullable().optional(),
-});
 
 const modelClaimsSchema = z.object({
   claims: z
@@ -73,20 +64,6 @@ const geminiResponseSchema = z.object({
     })
     .optional(),
 });
-
-const filterJsonSchema = {
-  type: "object",
-  properties: {
-    q: { type: "string" },
-    institution: { type: "string" },
-    type: { type: "string" },
-    subject: { type: "string" },
-    place: { type: "string" },
-    from: { type: "string" },
-    to: { type: "string" },
-  },
-  required: ["q", "institution", "type", "subject", "place", "from", "to"],
-} as const;
 
 const claimsJsonSchema = {
   type: "object",
@@ -134,12 +111,13 @@ function stripJsonFence(text: string): string {
 /**
  * SOURCE OF TRUTH KEYWORDS: generateJson, GEMINI_API_KEY, responseJsonSchema, /api/ask
  * WHAT: Calls Gemini and returns the JSON object it was told to produce.
- * WHY: Filter translation and the summary both stay on the server, and the API key never reaches the browser.
+ * WHY: The summary stays on the server, and the API key never reaches the browser.
  * WHERE: askArchive.
  */
 async function generateJson(
   prompt: string,
   responseJsonSchema: Record<string, unknown>,
+  maxOutputTokens?: number,
 ): Promise<unknown> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
@@ -148,24 +126,32 @@ async function generateJson(
 
   let lastMessage = "Gemini request failed";
   for (const model of geminiModels()) {
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-goog-api-key": apiKey,
-        },
-        body: JSON.stringify({
-          contents: [{ role: "user", parts: [{ text: prompt }] }],
-          generationConfig: {
-            temperature: 0,
-            responseMimeType: "application/json",
-            responseJsonSchema,
+    let response: Response;
+    try {
+      response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-goog-api-key": apiKey,
           },
-        }),
-      },
-    );
+          signal: AbortSignal.timeout(20000),
+          body: JSON.stringify({
+            contents: [{ role: "user", parts: [{ text: prompt }] }],
+            generationConfig: {
+              temperature: 0,
+              responseMimeType: "application/json",
+              responseJsonSchema,
+              ...(maxOutputTokens ? { maxOutputTokens } : {}),
+            },
+          }),
+        },
+      );
+    } catch {
+      lastMessage = "Gemini request timed out";
+      continue;
+    }
     const payload: unknown = await response.json();
     const parsed = geminiResponseSchema.safeParse(payload);
     if (!response.ok) {
@@ -188,7 +174,13 @@ async function generateJson(
       lastMessage = "Gemini returned an empty response";
       continue;
     }
-    const parsedJson: unknown = JSON.parse(stripJsonFence(text));
+    let parsedJson: unknown;
+    try {
+      parsedJson = JSON.parse(stripJsonFence(text));
+    } catch {
+      lastMessage = "Gemini returned an unreadable response";
+      continue;
+    }
     return parsedJson;
   }
   throw new Error(lastMessage);
@@ -200,11 +192,23 @@ async function generateJson(
  * WHY: institution and subject filters match those strings exactly.
  * WHERE: askArchive, before the filter translation.
  */
-async function askVocabulary(): Promise<{ publishers: string[]; subjects: string[] }> {
+let vocabularyCache: {
+  expires: number;
+  publishers: string[];
+  subjects: string[];
+  places: string[];
+} | null = null;
+
+async function askVocabulary(): Promise<{ publishers: string[]; subjects: string[]; places: string[] }> {
+  const now = Date.now();
+  if (vocabularyCache && vocabularyCache.expires > now) {
+    return vocabularyCache;
+  }
   const supabase = await createClient();
-  const [sourcesResult, subjectsResult] = await Promise.all([
+  const [sourcesResult, subjectsResult, placesResult] = await Promise.all([
     supabase.from("sources").select("name").order("name"),
     supabase.from("subjects").select("name").order("name"),
+    supabase.from("places").select("name").order("name"),
   ]);
   if (sourcesResult.error) {
     throw new Error(sourcesResult.error.message);
@@ -212,57 +216,16 @@ async function askVocabulary(): Promise<{ publishers: string[]; subjects: string
   if (subjectsResult.error) {
     throw new Error(subjectsResult.error.message);
   }
-  return {
+  if (placesResult.error) {
+    throw new Error(placesResult.error.message);
+  }
+  const names = {
     publishers: nameRowsSchema.parse(sourcesResult.data).map((row) => row.name),
     subjects: nameRowsSchema.parse(subjectsResult.data).map((row) => row.name),
+    places: nameRowsSchema.parse(placesResult.data).map((row) => row.name),
   };
-}
-
-/**
- * SOURCE OF TRUTH KEYWORDS: normalizeFilters, SearchQuery, institution, place, from
- * WHAT: Turns the model filter JSON into a SearchQuery.
- * WHY: A publisher, subject, type, or date the catalog cannot match is dropped before the search runs.
- * WHERE: askArchive, after the translation call.
- */
-function normalizeFilters(
-  value: unknown,
-  publishers: readonly string[],
-  subjects: readonly string[],
-): SearchQuery {
-  const draft = filterDraftSchema.parse(value);
-  const text = (field: string | null | undefined): string | undefined => {
-    const trimmed = field?.trim();
-    return trimmed ? trimmed : undefined;
-  };
-  const institution = publishers.find(
-    (publisher) => publisher.toLowerCase() === text(draft.institution)?.toLowerCase(),
-  );
-  const subject = subjects.find(
-    (heading) => heading.toLowerCase() === text(draft.subject)?.toLowerCase(),
-  );
-  const type = recordTypeValues.find(
-    (recordType) => recordType === text(draft.type)?.toLowerCase(),
-  );
-  const isoDate = (field: string | null | undefined): string | undefined => {
-    const trimmed = text(field);
-    return trimmed && /^\d{4}-\d{2}-\d{2}$/.test(trimmed) ? trimmed : undefined;
-  };
-  let from = isoDate(draft.from);
-  let to = isoDate(draft.to);
-  if (from && to && from > to) {
-    from = undefined;
-    to = undefined;
-  }
-
-  return searchQuerySchema.parse({
-    q: text(draft.q),
-    institution,
-    type,
-    subject,
-    place: text(draft.place),
-    from,
-    to,
-  });
+  vocabularyCache = { expires: now + VOCABULARY_TTL_MS, ...names };
+  return names;
 }
 
 /**
@@ -311,7 +274,7 @@ function recordBrief(record: CatalogRecord): {
     place: record.dcterms_spatial,
     timePeriod: record.dcterms_temporal,
     subjects: record.dc_subject,
-    description: record.dc_description?.slice(0, 500) ?? null,
+    description: record.dc_description?.slice(0, 280) ?? null,
   };
 }
 
@@ -414,26 +377,6 @@ function claimLines(
   return lines;
 }
 
-/**
- * SOURCE OF TRUTH KEYWORDS: broadenSearch, SearchQuery, empty q, subject place
- * WHAT: Repeats a search without the keyword filter when the full filter set matches nothing.
- * WHY: A question like "what year was Africville founded" should still retrieve Africville records when "founded" is not stored on them.
- * WHERE: askArchive, after the first searchRecords call.
- */
-async function broadenSearch(filters: SearchQuery): Promise<SearchResponse> {
-  const first = await searchRecords(filters, { limit: EVIDENCE_POOL });
-  if (first.count > 0 || !filters.q) {
-    return first;
-  }
-  const hasOtherFilter = Boolean(
-    filters.institution || filters.type || filters.subject || filters.place || filters.from || filters.to,
-  );
-  if (!hasOtherFilter) {
-    return first;
-  }
-  return searchRecords({ ...filters, q: undefined }, { limit: EVIDENCE_POOL });
-}
-
 const QUESTION_STOP_WORDS = new Set([
   "when",
   "was",
@@ -469,18 +412,110 @@ function questionTokens(question: string): string[] {
   );
 }
 
+const KEYWORD_STOP_WORDS = new Set([
+  ...QUESTION_STOP_WORDS,
+  "records",
+  "record",
+  "mention",
+  "mentions",
+  "mentioned",
+  "history",
+  "black",
+  "people",
+  "community",
+  "communities",
+  "archive",
+  "document",
+  "documents",
+]);
+
 /**
- * SOURCE OF TRUTH KEYWORDS: gatherRecords, place, subject, EVIDENCE_POOL, SearchQuery
- * WHAT: Unions the filtered search with the same name looked up as a place and as a subject.
- * WHY: One heading misses records filed under the other, and the summary can only use records it was given.
- * WHERE: askArchive, after broadenSearch.
+ * SOURCE OF TRUTH KEYWORDS: phraseInQuestion, longestCatalogName, place, subject
+ * WHAT: Finds the longest catalog name written in the question.
+ * WHY: A place, subject, or institution filter is set only when that exact name is already in the catalog.
+ * WHERE: filtersFromQuestion.
  */
-async function gatherRecords(
+function longestCatalogName(question: string, names: readonly string[], minLength: number): string | undefined {
+  const matches = names.filter((name) => {
+    const phrase = name.trim();
+    if (phrase.length < minLength) return false;
+    const escaped = phrase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return new RegExp(`(?:^|[^a-z0-9])${escaped}(?=$|[^a-z0-9])`, "i").test(question);
+  });
+  matches.sort((left, right) => right.length - left.length);
+  return matches[0];
+}
+
+/**
+ * SOURCE OF TRUTH KEYWORDS: properNameTokens, capitalized names, question, keywords
+ * WHAT: Reads the capitalized names written in a question.
+ * WHY: Filter keywords and the global search must use the same names.
+ * WHERE: filtersFromQuestion and searchTerms.
+ */
+function properNameTokens(question: string): string[] {
+  return (question.match(/\b[A-Z][A-Za-z'’.-]{2,}(?:\s+[A-Z][A-Za-z'’.-]{2,})*/g) ?? [])
+    .flatMap((phrase) => phrase.toLowerCase().match(/[a-z0-9]+/g) ?? []);
+}
+
+/**
+ * SOURCE OF TRUTH KEYWORDS: filtersFromQuestion, SearchQuery, place, global search
+ * WHAT: Turns a question into search filters from catalog names and the names written in the question.
+ * WHY: The record search can start immediately, and the model is used only to write the cited answer.
+ * WHERE: askArchive, before the searches.
+ */
+function filtersFromQuestion(
   question: string,
-  filters: SearchQuery,
-  primary: readonly CatalogRecord[],
-): Promise<CatalogRecord[]> {
-  const merged = new Map(primary.map((record) => [record.id, record]));
+  names: { publishers: readonly string[]; subjects: readonly string[]; places: readonly string[] },
+): SearchQuery {
+  const place = longestCatalogName(question, names.places, 4);
+  const subject = longestCatalogName(
+    question,
+    names.subjects.filter((name) => name.toLowerCase() !== place?.toLowerCase() && (name.trim().includes(" ") || name.trim().length >= 12)),
+    8,
+  );
+  const institution = longestCatalogName(question, names.publishers, 8);
+  const type = recordTypeValues.find((recordType) =>
+    new RegExp(`(?:^|[^a-z])${recordType}(?=$|[^a-z])`, "i").test(question),
+  );
+  const used = new Set(
+    [place, subject, institution].join(" ").toLowerCase().match(/[a-z0-9]+/g) ?? [],
+  );
+  const properNames = properNameTokens(question);
+  const keywords = [...new Set(properNames.length > 0 ? properNames : questionTokens(question))].filter(
+    (token) => token.length > 3 && !used.has(token) && !KEYWORD_STOP_WORDS.has(token) && !/^\d/.test(token),
+  );
+  const identified = Boolean(place || subject || institution || type);
+  const q = !identified || keywords.length > 0 ? keywords.slice(0, 6).join(" ") : undefined;
+  return searchQuerySchema.parse({
+    q: q || undefined,
+    institution,
+    type,
+    subject,
+    place,
+  });
+}
+
+/**
+ * SOURCE OF TRUTH KEYWORDS: searchTerms, proper names, KEYWORD_STOP_WORDS, global search
+ * WHAT: Keeps the distinctive names in a question, at most four.
+ * WHY: Searching common words such as "records" matches most of the catalog and slows the query.
+ * WHERE: companionQueries and globalQuestionSearch.
+ */
+function searchTerms(question: string): string[] {
+  const properNames = properNameTokens(question);
+  const source = properNames.length > 0 ? properNames : questionTokens(question);
+  return [...new Set(source)]
+    .filter((token) => token.length > 3 && !KEYWORD_STOP_WORDS.has(token) && !/^\d/.test(token))
+    .slice(0, 4);
+}
+
+/**
+ * SOURCE OF TRUTH KEYWORDS: companionQueries, place, subject, EVIDENCE_POOL, SearchQuery
+ * WHAT: Adds the same name looked up under the other heading, and a keyword search that keeps that heading.
+ * WHY: A subject must not be searched as a place, and the summary can only use records it was given.
+ * WHERE: askArchive, beside the strict search.
+ */
+function companionQueries(question: string, filters: SearchQuery): SearchQuery[] {
   const companions: SearchQuery[] = [];
   if (filters.place && filters.subject) {
     companions.push(searchQuerySchema.parse({ place: filters.place }));
@@ -490,25 +525,33 @@ async function gatherRecords(
   } else if (filters.place) {
     companions.push(searchQuerySchema.parse({ subject: filters.place }));
   }
-  const words = questionTokens(question).filter(
+  const words = searchTerms(question).filter(
     (token) => token !== filters.place?.toLowerCase() && token !== filters.subject?.toLowerCase(),
   );
-  const scope = filters.place ?? filters.subject;
-  if (scope && words.length > 0) {
-    companions.push(
-      searchQuerySchema.parse({
-        q: words.join(" OR "),
-        place: scope,
-      }),
-    );
+  if (words.length > 0 && filters.place) {
+    companions.push(searchQuerySchema.parse({ q: words.join(" OR "), place: filters.place }));
+  } else if (words.length > 0 && filters.subject) {
+    companions.push(searchQuerySchema.parse({ q: words.join(" OR "), subject: filters.subject }));
   }
-  for (const query of companions) {
-    const extra = await searchRecords(query, { limit: EVIDENCE_POOL });
-    for (const record of extra.results) {
-      merged.set(record.id, record);
-    }
+  if (filters.q && (filters.place || filters.subject || filters.institution || filters.type)) {
+    companions.push(searchQuerySchema.parse({ ...filters, q: undefined }));
   }
-  return [...merged.values()];
+  return companions;
+}
+
+/**
+ * SOURCE OF TRUTH KEYWORDS: globalQuestionSearch, all sources, questionTokens, no view
+ * WHAT: Searches the question across every source, with no place, institution, or room limit.
+ * WHY: The catalog ask is a search of the whole archive, so a citation can come from any matching record.
+ * WHERE: askArchive when the viewer is not standing in a room or in front of a record.
+ */
+async function globalQuestionSearch(question: string): Promise<CatalogRecord[]> {
+  const words = searchTerms(question);
+  if (words.length === 0) return [];
+  const extra = await searchRecords(searchQuerySchema.parse({ q: words.join(" OR ") }), {
+    limit: EVIDENCE_POOL,
+  });
+  return extra.results;
 }
 
 /**
@@ -601,47 +644,33 @@ function selectEvidence(question: string, records: readonly CatalogRecord[]): Ca
  * WHERE: app/api/ask/route.ts.
  */
 export async function askArchive(question: string, view?: AskView): Promise<AskResponse> {
-  const { publishers, subjects } = await askVocabulary();
-  const filterPrompt = [
-    "Translate the archive question into search filters. Do not answer the question.",
-    "Return every key. Use an empty string when a filter does not apply.",
-    `institution must be empty or exactly one of: ${publishers.join(" | ")}`,
-    `type must be empty or exactly one of: ${recordTypeValues.join(" | ")}`,
-    `subject must be empty or exactly one of: ${subjects.join(" | ")}`,
-    "subject is an exact heading. Leave it empty unless the question names that heading.",
-    "A community or place name goes in place, even when the same words exist as a subject heading.",
-    "place is only the place name, such as Preston.",
-    "q is a few keywords that appear in a title or description. Leave q empty when place, institution, type, or subject already identifies the records.",
-    "Do not put century labels such as 1800s or 19th century in q, from, or to. Those words are not stored on the records.",
-    "from and to are YYYY-MM-DD only when the question gives a specific calendar day. Otherwise leave them empty. A year written as 1818 or 27 June 1832 is not an ISO date.",
-    "There is no community filter. Do not invent one.",
-    'Example question: "records about Black communities in Preston in the 1800s"',
-    'Example filters: {"q":"","institution":"","type":"","subject":"","place":"Preston","from":"","to":""}',
-    `Question: ${question}`,
-  ].join("\n");
-
-  const filters = normalizeFilters(
-    await generateJson(filterPrompt, filterJsonSchema),
-    publishers,
-    subjects,
+  const names = await askVocabulary();
+  const filters = filtersFromQuestion(question, names);
+  const queries = [
+    ...(hasSearchFilter(filters) ? [filters] : []),
+    ...companionQueries(question, filters),
+  ];
+  const [viewed, globalRecords, ...pages] = await Promise.all([
+    recordsInView(view),
+    view ? Promise.resolve([] as CatalogRecord[]) : globalQuestionSearch(question),
+    ...queries.map((query) => searchRecords(query, { limit: EVIDENCE_POOL })),
+  ]);
+  const strict = hasSearchFilter(filters) ? pages[0] : undefined;
+  const withoutKeyword = pages.find(
+    (page, index) =>
+      index > 0 &&
+      !page.filters.q &&
+      page.filters.place === filters.place &&
+      page.filters.subject === filters.subject &&
+      page.filters.institution === filters.institution &&
+      page.filters.type === filters.type &&
+      page.count > 0,
   );
-
-  const viewed = await recordsInView(view);
-  if (!hasSearchFilter(filters) && viewed.records.length === 0 && viewed.wall.length === 0) {
-    return askResponseSchema.parse({
-      question,
-      filters,
-      count: 0,
-      summary: noArchiveSourceMessage,
-      citations: [],
-    });
-  }
-
-  const search = hasSearchFilter(filters)
-    ? await broadenSearch(filters)
-    : { count: 0, filters, results: [] };
+  const search = strict && strict.count > 0 ? strict : (withoutKeyword ?? { count: 0, filters, results: [] });
   if (
-    (search.count === 0 || search.results.length === 0) &&
+    search.results.length === 0 &&
+    globalRecords.length === 0 &&
+    pages.every((page) => page.results.length === 0) &&
     viewed.records.length === 0 &&
     viewed.wall.length === 0
   ) {
@@ -654,9 +683,11 @@ export async function askArchive(question: string, view?: AskView): Promise<AskR
     });
   }
 
-  const gathered = hasSearchFilter(filters)
-    ? await gatherRecords(question, search.filters, search.results)
-    : [];
+  const gathered = [
+    ...new Map(
+      [...pages.flatMap((page) => page.results), ...globalRecords].map((record) => [record.id, record]),
+    ).values(),
+  ];
   const viewedIds = new Set(viewed.records.map((record) => record.id));
   const ranked = selectEvidence(
     question,
@@ -667,14 +698,17 @@ export async function askArchive(question: string, view?: AskView): Promise<AskR
   const summaryPrompt = [
     viewed.note,
     `Question: ${question}`,
-    "Answer that question using only the archive records in the JSON and the viewer line above. Do not add history, context, or facts that are not written there.",
+    "Answer in natural spoken language, as a guide in the archive would, using only the records in the JSON and the viewer line above.",
+    "Do not add history, context, or facts that are not written there. Do not mention searches, filters, counts, or record ids.",
     "When the viewer line names a record or gallery, answer about that unless the question clearly asks about something else.",
-    "The first claim must answer the question. If none of the records state that fact, the first claim must say so.",
-    "Return claims. Each claim is one sentence in text, and recordIds lists the record ids that sentence uses.",
+    "The first claim must answer the question in plain words. If none of the records state that fact, the first claim must say so.",
+    "Then cover the people, places, dates, and documents in the records that bear on the question, so the claims read together as one answer.",
+    "Return claims. Each claim is one or two plain sentences in text, and recordIds lists every record that sentence cites.",
+    "A claim that uses a record must put that record in recordIds. Those ids are the in-text citations.",
     "Every recordIds value must be copied from the records. If a fact is not in a record, omit it.",
     "Do not put a record id inside text.",
     "A date may be mentioned only when that same record's date, dateText, timePeriod, or description writes it.",
-    "Write at most 4 claims.",
+    "Write up to 6 claims.",
     JSON.stringify([
       ...viewed.wall.map((record) => ({
         id: record.id,
@@ -686,7 +720,7 @@ export async function askArchive(question: string, view?: AskView): Promise<AskR
         place: record.place,
         timePeriod: null,
         subjects: record.subjects,
-        description: record.description?.slice(0, 500) ?? null,
+        description: record.description?.slice(0, 280) ?? null,
       })),
       ...records.map(recordBrief),
     ]),
@@ -695,7 +729,7 @@ export async function askArchive(question: string, view?: AskView): Promise<AskR
   let lines: string[] = [];
   try {
     const drafted = modelClaimsSchema.parse(
-      await generateJson(summaryPrompt, claimsJsonSchema),
+      await generateJson(summaryPrompt, claimsJsonSchema, 1400),
     );
     lines = claimLines(drafted.claims ?? [], records, wallById);
   } catch {
@@ -710,7 +744,7 @@ export async function askArchive(question: string, view?: AskView): Promise<AskR
   const body =
     lines.length > 0
       ? lines.join("\n\n")
-      : "These records do not answer that. The matching records are listed below.";
+      : "These records do not say that directly. The closest ones are listed below.";
   const summary = `${lead}\n\n${body}\n\nSources:\n${sourceBlock(records)}`;
 
   return askResponseSchema.parse({
@@ -724,7 +758,7 @@ export async function askArchive(question: string, view?: AskView): Promise<AskR
         title: record.title,
         collectionKey: record.collectionKey,
       })),
-      ...evidenceCitations(cited.length > 0 ? cited : records),
-    ].slice(0, 4),
+      ...evidenceCitations(cited.length > 0 ? cited : records.slice(0, 8)),
+    ],
   });
 }

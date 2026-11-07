@@ -52,6 +52,7 @@ export {
 } from "./museum";
 export type {
   AppMode,
+  ArchiveGateView,
   ArchiveCollection,
   ArchiveFilter,
   ArchiveImageProxyQuery,

@@ -1,6 +1,7 @@
 import { AskArchive } from "@/app/catalog/_components/ask-archive";
 import { CatalogFilters } from "@/app/catalog/_components/catalog-filters";
 import { CatalogResultsView } from "@/app/catalog/_components/catalog-results-view";
+import styles from "@/app/catalog/_components/catalog-results.module.css";
 import { catalogService, searchService } from "@/lib/services";
 import {
   parseSearchParams,
@@ -100,12 +101,14 @@ export async function CatalogResults({ searchParams }: CatalogPageProps) {
   const previousPageHref = page > 1 ? catalogPageHref(filters, page - 1) : null;
   const nextPageHref = page < pageCount ? catalogPageHref(filters, page + 1) : null;
 
-  const totals = [
+  const headlineTotals = [
     ["Records", header.totals.records],
     ["Sources", header.totals.sources],
     ["People", header.totals.people],
     ["Places", header.totals.places],
     ["Subjects", header.totals.subjects],
+  ] as const;
+  const relationTotals = [
     ["Communities", header.totals.communities],
     ["Creator links", header.totals.recordPeople],
     ["Place links", header.totals.recordPlaces],
@@ -113,29 +116,35 @@ export async function CatalogResults({ searchParams }: CatalogPageProps) {
   ] as const;
 
   return (
-    <div className="flex flex-col gap-6">
-      <div>
-        <h1 className="font-serif text-3xl font-bold tracking-tight text-foreground">
+    <div className="flex flex-col gap-8">
+      <header>
+        <h1 className="font-serif text-4xl font-medium leading-none text-foreground">
           Black history catalog
         </h1>
-        <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
-          Ask the archive turns a question into the same filters as GET /api/search.
-          The answer cites record ids from that search.
+        <p className="mt-3 max-w-2xl text-sm leading-relaxed text-foreground/70">
+          Ask a question in plain language, or narrow the records by institution, type, place, and date.
         </p>
-      </div>
+      </header>
 
       <AskArchive />
 
-      <dl className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-        {totals.map(([label, value]) => (
-          <div key={label} className="rounded-sm border border-border bg-card p-3">
-            <dt className="text-xs text-muted-foreground">{label}</dt>
-            <dd className="text-2xl font-semibold text-card-foreground">
-              {value.toLocaleString()}
-            </dd>
-          </div>
-        ))}
-      </dl>
+      <section aria-label="Catalog totals" className={`${styles.totals} overflow-hidden`}>
+        <dl className="grid grid-cols-2 md:grid-cols-5">
+          {headlineTotals.map(([label, value]) => (
+            <div key={label} className={`${styles.stat} px-6 py-4`}>
+              <dt className="text-sm text-foreground/70">{label}</dt>
+              <dd className="mt-1 font-serif text-3xl leading-none text-card-foreground">
+                {value.toLocaleString()}
+              </dd>
+            </div>
+          ))}
+        </dl>
+        <p className="border-t border-border px-6 py-3 text-sm text-foreground/70">
+          {relationTotals
+            .map(([label, value]) => `${label} ${value.toLocaleString()}`)
+            .join(" · ")}
+        </p>
+      </section>
 
       <CatalogFilters publishers={header.publishers} query={filters} />
 
