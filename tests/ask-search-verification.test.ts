@@ -21,10 +21,10 @@ import {
   ArchiveSearchBar,
   clearCatalogSearchParams,
   filterHref,
-  handleModeSwitch,
   handleRadioArrowNavigation,
   mergeCatalogSearchParams,
 } from "@/src/components/archive";
+import { handleModeSwitch } from "@/src/components/archive/archive-search-bar";
 import { catalogService, searchService } from "@/lib/services";
 import {
   archiveSearchBarPropsSchema,
@@ -1005,6 +1005,21 @@ describe("CatalogFilters Contract and Query Preservation", () => {
     );
   });
 
+  it("preserves drafted keyword in hidden q input when draftKeyword is provided", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(CatalogFilters, {
+        publishers: samplePublishers,
+        query: { q: "Africville Baptist Church", institution: "BCCNS" },
+        draftKeyword: "Africville Community Leaders",
+      }),
+    );
+
+    // Hidden input prioritizes drafted keyword over URL query.q
+    expect(html).toContain(
+      '<input type="hidden" name="q" value="Africville Community Leaders"',
+    );
+  });
+
   it("defaults hidden q value to empty string when query.q is omitted", () => {
     const html = renderToStaticMarkup(
       React.createElement(CatalogFilters, {
@@ -1322,7 +1337,7 @@ describe("Ticket 04: Comprehensive Verification and Accessibility Test Suite", (
     expect(html).not.toContain('class="error"');
   });
 
-  it("starts collapsed by default with aria-expanded false and hidden panel", () => {
+  it("starts collapsed by default with aria-expanded false and smooth grid-rows-[0fr] collapse", () => {
     const html = renderToStaticMarkup(
       React.createElement(CatalogFilters, {
         publishers: samplePublishers,
@@ -1330,11 +1345,11 @@ describe("Ticket 04: Comprehensive Verification and Accessibility Test Suite", (
       }),
     );
 
-    // Starts collapsed by default with smooth accordion grid-template-rows 0fr
+    // Starts collapsed by default with smooth accordion grid-template-rows 0fr and no abrupt hidden cutting
     expect(html).toContain('aria-expanded="false"');
     expect(html).toContain('aria-controls="catalog-filters-panel"');
     expect(html).toContain('id="catalog-filters-panel"');
-    expect(html).toContain('hidden=""');
+    expect(html).not.toContain('id="catalog-filters-panel" hidden');
     expect(html).toContain("grid-rows-[0fr]");
     expect(html).toContain("transition-[grid-template-rows]");
     expect(html).toContain('aria-label="Filters"');
@@ -1786,6 +1801,18 @@ describe("ArchiveSearchBar Integrated Filter Pill Contract (Ticket 02)", () => {
     expect(floatCount.success).toBe(false);
   });
 
+  it("validates archiveSearchBarPropsSchema with onQuestionChange and onCloseFilterPanel", () => {
+    const onQuestionChange = vi.fn();
+    const onCloseFilterPanel = vi.fn();
+    const parsed = archiveSearchBarPropsSchema.parse({
+      enableFilterPill: true,
+      onQuestionChange,
+      onCloseFilterPanel,
+    });
+    expect(parsed.onQuestionChange).toBe(onQuestionChange);
+    expect(parsed.onCloseFilterPanel).toBe(onCloseFilterPanel);
+  });
+
   it("renders backward-compatible DOM without filter pill button when enableFilterPill is omitted or false", () => {
     const htmlOmitted = renderToStaticMarkup(
       React.createElement(ArchiveSearchBar, {
@@ -1870,7 +1897,25 @@ describe("ArchiveSearchBar Integrated Filter Pill Contract (Ticket 02)", () => {
     expect(htmlAi).not.toContain("<span>Filters</span>");
   });
 
-  it("automatically triggers onToggleFilterPanel when switching from keyword mode to AI mode with open filter panel", () => {
+  it("deterministically invokes onCloseFilterPanel when switching from keyword mode to AI mode with open filter panel", () => {
+    const onCloseMock = vi.fn();
+    const onToggleMock = vi.fn();
+    const clearAiMock = vi.fn();
+
+    const handled = handleModeSwitch("keyword", "ai", {
+      filterPanelOpen: true,
+      onCloseFilterPanel: onCloseMock,
+      onToggleFilterPanel: onToggleMock,
+      clearAiResults: clearAiMock,
+    });
+
+    expect(handled).toBe(true);
+    expect(onCloseMock).toHaveBeenCalledTimes(1);
+    expect(onToggleMock).not.toHaveBeenCalled();
+    expect(clearAiMock).not.toHaveBeenCalled();
+  });
+
+  it("falls back to onToggleFilterPanel for backward compatibility when onCloseFilterPanel is omitted", () => {
     const onToggleMock = vi.fn();
     const clearAiMock = vi.fn();
 
@@ -1885,46 +1930,55 @@ describe("ArchiveSearchBar Integrated Filter Pill Contract (Ticket 02)", () => {
     expect(clearAiMock).not.toHaveBeenCalled();
   });
 
-  it("does not trigger onToggleFilterPanel when switching to AI mode if filter panel was already closed", () => {
+  it("does not trigger onCloseFilterPanel or onToggleFilterPanel when switching to AI mode if filter panel was already closed", () => {
+    const onCloseMock = vi.fn();
     const onToggleMock = vi.fn();
     const clearAiMock = vi.fn();
 
     const handled = handleModeSwitch("keyword", "ai", {
       filterPanelOpen: false,
+      onCloseFilterPanel: onCloseMock,
       onToggleFilterPanel: onToggleMock,
       clearAiResults: clearAiMock,
     });
 
     expect(handled).toBe(true);
+    expect(onCloseMock).not.toHaveBeenCalled();
     expect(onToggleMock).not.toHaveBeenCalled();
   });
 
-  it("clears AI results and ignores filter panel toggle when switching back from AI mode to keyword mode", () => {
+  it("clears AI results and ignores filter panel collapse when switching back from AI mode to keyword mode", () => {
+    const onCloseMock = vi.fn();
     const onToggleMock = vi.fn();
     const clearAiMock = vi.fn();
 
     const handled = handleModeSwitch("ai", "keyword", {
       filterPanelOpen: true,
+      onCloseFilterPanel: onCloseMock,
       onToggleFilterPanel: onToggleMock,
       clearAiResults: clearAiMock,
     });
 
     expect(handled).toBe(true);
     expect(clearAiMock).toHaveBeenCalledTimes(1);
+    expect(onCloseMock).not.toHaveBeenCalled();
     expect(onToggleMock).not.toHaveBeenCalled();
   });
 
   it("ignores no-op mode switch when target mode matches current mode", () => {
+    const onCloseMock = vi.fn();
     const onToggleMock = vi.fn();
     const clearAiMock = vi.fn();
 
     const handled = handleModeSwitch("keyword", "keyword", {
       filterPanelOpen: true,
+      onCloseFilterPanel: onCloseMock,
       onToggleFilterPanel: onToggleMock,
       clearAiResults: clearAiMock,
     });
 
     expect(handled).toBe(false);
+    expect(onCloseMock).not.toHaveBeenCalled();
     expect(onToggleMock).not.toHaveBeenCalled();
     expect(clearAiMock).not.toHaveBeenCalled();
   });
@@ -1972,7 +2026,7 @@ describe("Ticket 03: Unified Filter Panel Relocation and Controlled Expansion", 
     // Filter panel is expanded
     expect(html).toContain('id="catalog-filters-panel"');
     expect(html).toContain("grid-rows-[1fr]");
-    expect(html).not.toContain('id="catalog-filters-panel" hidden=""');
+    expect(html).not.toContain('id="catalog-filters-panel" hidden');
 
     // Retains hidden keyword input and facet fields
     expect(html).toContain('name="q"');
@@ -1984,7 +2038,7 @@ describe("Ticket 03: Unified Filter Panel Relocation and Controlled Expansion", 
     expect(html).toContain('href="/catalog?q=Africville"');
   });
 
-  it("renders collapsed panel when hideHeaderToggle is true and controlled isOpen=false", () => {
+  it("renders collapsed panel when hideHeaderToggle is true and controlled isOpen=false without abrupt hidden cutting", () => {
     const html = renderToStaticMarkup(
       React.createElement(CatalogFilters, {
         publishers: samplePublishers,
@@ -1997,7 +2051,7 @@ describe("Ticket 03: Unified Filter Panel Relocation and Controlled Expansion", 
     expect(html).not.toContain('<button type="button" aria-controls="catalog-filters-panel"');
     expect(html).toContain('id="catalog-filters-panel"');
     expect(html).toContain("grid-rows-[0fr]");
-    expect(html).toContain('hidden=""');
+    expect(html).not.toContain('id="catalog-filters-panel" hidden');
   });
 
   it("accurately tallies active secondary filters and ignores keyword query q and blank strings", () => {
@@ -2067,6 +2121,26 @@ describe("Ticket 03: Unified Filter Panel Relocation and Controlled Expansion", 
     // Mounts CatalogFilters directly adjacent without redundant header toggle
     expect(html).not.toContain('<button type="button" aria-controls="catalog-filters-panel" aria-label="Filters (2)"');
     expect(html).toContain('id="catalog-filters-panel"');
+  });
+
+  it("synchronizes drafted query state between ArchiveSearchBar and CatalogFilters within CatalogSearchSection", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(CatalogSearchSection, {
+        publishers: samplePublishers,
+        filters: {
+          q: "Africville Baptist Church",
+          institution: "BCCNS",
+        },
+      }),
+    );
+
+    // Initial query is propagated to ArchiveSearchBar search input value
+    expect(html).toContain('value="Africville Baptist Church"');
+
+    // Initial query is propagated as draftKeyword into CatalogFilters hidden q input
+    expect(html).toContain(
+      '<input type="hidden" name="q" value="Africville Baptist Church"',
+    );
   });
 
   it("renders CatalogResults with search and filter section relocated above totals and removes disconnected filter block below", async () => {
@@ -2315,36 +2389,41 @@ describe("Ticket 04: End-to-End Verification and Accessibility Test Suite", () =
     expect(htmlAi).not.toContain("search-bar-filter-badge");
     expect(htmlAi).not.toContain("<span>Filters</span>");
 
-    // 2. Switching to AI mode when filter panel is open collapses the panel
+    // 2. Switching to AI mode when filter panel is open deterministically collapses the panel via onCloseFilterPanel
+    const onCloseMock = vi.fn();
     const onToggleMock = vi.fn();
     const clearAiMock = vi.fn();
     const handled = handleModeSwitch("keyword", "ai", {
       filterPanelOpen: true,
+      onCloseFilterPanel: onCloseMock,
       onToggleFilterPanel: onToggleMock,
       clearAiResults: clearAiMock,
     });
     expect(handled).toBe(true);
-    expect(onToggleMock).toHaveBeenCalledTimes(1);
+    expect(onCloseMock).toHaveBeenCalledTimes(1);
+    expect(onToggleMock).not.toHaveBeenCalled();
 
-    // 3. Switching to AI mode when filter panel was already closed does not call onToggleFilterPanel
-    const onToggleClosedMock = vi.fn();
+    // 3. Switching to AI mode when filter panel was already closed does not call onCloseFilterPanel
+    const onCloseClosedMock = vi.fn();
     const handledClosed = handleModeSwitch("keyword", "ai", {
       filterPanelOpen: false,
-      onToggleFilterPanel: onToggleClosedMock,
+      onCloseFilterPanel: onCloseClosedMock,
       clearAiResults: clearAiMock,
     });
     expect(handledClosed).toBe(true);
-    expect(onToggleClosedMock).not.toHaveBeenCalled();
+    expect(onCloseClosedMock).not.toHaveBeenCalled();
 
-    // 4. Switching back to keyword mode clears AI results and does not toggle the filter panel
+    // 4. Switching back to keyword mode clears AI results and does not toggle or close the filter panel
     const handledBack = handleModeSwitch("ai", "keyword", {
       filterPanelOpen: false,
+      onCloseFilterPanel: onCloseMock,
       onToggleFilterPanel: onToggleMock,
       clearAiResults: clearAiMock,
     });
     expect(handledBack).toBe(true);
     expect(clearAiMock).toHaveBeenCalledTimes(1);
-    expect(onToggleMock).toHaveBeenCalledTimes(1); // unchanged from step 2
+    expect(onCloseMock).toHaveBeenCalledTimes(1); // unchanged from step 2
+    expect(onToggleMock).not.toHaveBeenCalled();
   });
 
   it("verifies filter panel expands directly adjacent underneath search bar container and above catalog totals", async () => {
@@ -2414,7 +2493,7 @@ describe("Ticket 04: End-to-End Verification and Accessibility Test Suite", () =
     );
     expect(collapsedMarkup).toContain("grid-rows-[0fr]");
     expect(collapsedMarkup).toContain("transition-[grid-template-rows]");
-    expect(collapsedMarkup).toContain('hidden=""');
+    expect(collapsedMarkup).not.toContain('id="catalog-filters-panel" hidden');
 
     const expandedMarkup = renderToStaticMarkup(
       React.createElement(CatalogFilters, {
@@ -2426,7 +2505,7 @@ describe("Ticket 04: End-to-End Verification and Accessibility Test Suite", () =
     );
     expect(expandedMarkup).toContain("grid-rows-[1fr]");
     expect(expandedMarkup).toContain("transition-[grid-template-rows]");
-    expect(expandedMarkup).not.toContain('hidden=""');
+    expect(expandedMarkup).not.toContain('id="catalog-filters-panel" hidden');
   });
 
   it("verifies submitting filters preserves hidden q input and active secondary facet parameters in URL query", () => {

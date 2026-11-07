@@ -10,6 +10,7 @@ import styles from "@/src/components/archive/archive-search-bar.module.css";
 import {
   type ArchiveSearchBarProps,
   type AskResponse,
+  type ModeSwitchOptions,
   type SearchMode,
   type SearchQuery,
 } from "@/src/types";
@@ -106,7 +107,7 @@ export function handleRadioArrowNavigation(
 }
 
 /**
- * SOURCE OF TRUTH KEYWORDS: handleModeSwitch, SearchMode, dualModeSearch, modeToggle, filterPanelCollapse, aiModeSuppression
+ * SOURCE OF TRUTH KEYWORDS: handleModeSwitch, SearchMode, dualModeSearch, modeToggle, filterPanelCollapse, aiModeSuppression, ModeSwitchOptions
  * WHAT: Determines search mode transitions, dismissing AI results when switching to keyword mode and auto-collapsing open filter panels when switching to AI mode.
  * WHY: Provides a deterministic, testable seam that ensures Ticket 02 mode-switching contracts are maintained without UI side-effects.
  * WHERE: ArchiveSearchBar switchMode callback and ask-search-verification tests.
@@ -114,11 +115,7 @@ export function handleRadioArrowNavigation(
 export function handleModeSwitch(
   currentMode: SearchMode,
   newMode: SearchMode,
-  options: {
-    filterPanelOpen?: boolean;
-    onToggleFilterPanel?: () => void;
-    clearAiResults?: () => void;
-  },
+  options: ModeSwitchOptions,
 ): boolean {
   if (newMode === currentMode) {
     return false;
@@ -127,7 +124,11 @@ export function handleModeSwitch(
     options.clearAiResults?.();
   } else if (newMode === "ai") {
     if (options.filterPanelOpen) {
-      options.onToggleFilterPanel?.();
+      if (options.onCloseFilterPanel) {
+        options.onCloseFilterPanel();
+      } else {
+        options.onToggleFilterPanel?.();
+      }
     }
   }
   return true;
@@ -153,6 +154,8 @@ export function ArchiveSearchBar({
   filterPanelOpen = false,
   activeFilterCount,
   onToggleFilterPanel,
+  onCloseFilterPanel,
+  onQuestionChange,
   onAnswer,
   onClear,
 }: ArchiveSearchBarProps) {
@@ -188,6 +191,7 @@ export function ArchiveSearchBar({
     const switched = handleModeSwitch(mode, newMode, {
       filterPanelOpen,
       onToggleFilterPanel,
+      onCloseFilterPanel,
       clearAiResults: () => {
         setResult(null);
         setError(null);
@@ -287,6 +291,7 @@ export function ArchiveSearchBar({
     setResult(null);
     setError(null);
     setQuestion("");
+    onQuestionChange?.("");
     onClear?.();
     if (autoNavigate && typeof window !== "undefined") {
       const currentParams = new URLSearchParams(window.location.search);
@@ -361,7 +366,10 @@ export function ArchiveSearchBar({
           aria-label={activePlaceholder}
           autoComplete="off"
           value={question}
-          onChange={(event) => setQuestion(event.target.value)}
+          onChange={(event) => {
+            setQuestion(event.target.value);
+            onQuestionChange?.(event.target.value);
+          }}
         />
         {open && !pending ? (
           <button

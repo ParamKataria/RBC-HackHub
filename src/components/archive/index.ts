@@ -9,7 +9,6 @@ export {
   ArchiveSearchBar,
   clearCatalogSearchParams,
   filterHref,
-  handleModeSwitch,
   handleRadioArrowNavigation,
   mergeCatalogSearchParams,
 } from "./archive-search-bar";

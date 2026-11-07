@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { searchQuerySchema } from "./search";
+import { searchQuerySchema, type SearchQuery } from "./search";
 
 /**
  * SOURCE OF TRUTH KEYWORDS: CatalogQuery, CatalogRecord, CatalogRecordDetail, raw_metadata, dc_identifier, CatalogFiltersProps
@@ -187,7 +187,7 @@ export const catalogRecordPagePropsSchema = z.object({
 export type CatalogRecordPageProps = z.infer<typeof catalogRecordPagePropsSchema>;
 
 /**
- * SOURCE OF TRUTH KEYWORDS: secondaryFilterKeys, countActiveSecondaryFilters, SecondaryFilterKey, facetBadgeCounter, filterCounter
+ * SOURCE OF TRUTH KEYWORDS: secondaryFilterKeys, countActiveSecondaryFilters, SecondaryFilterKey, facetBadgeCounter, filterCounter, SearchQuery
  * WHAT: Readonly tuple of catalog secondary facet parameter keys and tally function for active secondary filters excluding q.
  * WHY: Canonical calculation for filter pill badge and accordion clear button shared between server and client components.
  * WHERE: src/types/catalog.ts, app/catalog/_components/catalog-filters.tsx, and app/catalog/_components/catalog-search-section.tsx.
@@ -205,7 +205,7 @@ export const secondaryFilterKeys = [
 export type SecondaryFilterKey = (typeof secondaryFilterKeys)[number];
 
 export function countActiveSecondaryFilters(
-  query: Partial<Record<string, string | undefined>>,
+  query: SearchQuery | Partial<Record<string, string | undefined>>,
 ): number {
   return secondaryFilterKeys.reduce((count, key) => {
     const value = query[key];
@@ -216,9 +216,9 @@ export function countActiveSecondaryFilters(
 }
 
 /**
- * SOURCE OF TRUTH KEYWORDS: catalogFiltersPropsSchema, CatalogFiltersProps, hideHeaderToggle, controlledFilterExpansion, collapsibleFacetPanel, onToggle
+ * SOURCE OF TRUTH KEYWORDS: catalogFiltersPropsSchema, CatalogFiltersProps, hideHeaderToggle, controlledFilterExpansion, collapsibleFacetPanel, onToggle, draftKeyword
  * WHAT: Validated props schema and type definition for the CatalogFilters collapsible facet component.
- * WHY: Enforces strict typing for publishers, query parameters, controlled visibility state, and header toggle suppression.
+ * WHY: Enforces strict typing for publishers, query parameters, controlled visibility state, header toggle suppression, and drafted keyword synchronization.
  * WHERE: src/types/catalog.ts, app/catalog/_components/catalog-filters.tsx, and app/catalog/_components/catalog-search-section.tsx.
  */
 export const catalogFiltersPropsSchema = z.object({
@@ -227,11 +227,12 @@ export const catalogFiltersPropsSchema = z.object({
   defaultOpen: z.boolean().optional(),
   isOpen: z.boolean().optional(),
   hideHeaderToggle: z.boolean().optional(),
+  draftKeyword: z.string().optional(),
+  onToggle: z.custom<() => void>().optional(),
+  onClose: z.custom<() => void>().optional(),
 });
 
-export type CatalogFiltersProps = z.infer<typeof catalogFiltersPropsSchema> & {
-  onToggle?: () => void;
-};
+export type CatalogFiltersProps = z.infer<typeof catalogFiltersPropsSchema>;
 
 /**
  * SOURCE OF TRUTH KEYWORDS: catalogSearchSectionPropsSchema, CatalogSearchSectionProps, CatalogSearchSection, searchCoordinatorProps, searchFiltersSync

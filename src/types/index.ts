@@ -110,6 +110,7 @@ export type {
   LanguageModelHandler,
   LanguageModelInput,
   LanguageModelPort,
+  ModeSwitchOptions,
   ModelClaims,
   NameRows,
   RecordBrief,

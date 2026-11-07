@@ -72,6 +72,8 @@ export function CatalogFilters(rawProps: CatalogFiltersProps) {
     defaultOpen,
     isOpen: controlledIsOpen,
     hideHeaderToggle = false,
+    draftKeyword,
+    onToggle,
   } = catalogFiltersPropsSchema.parse(rawProps);
   const [uncontrolledIsOpen, setUncontrolledIsOpen] = useState(
     defaultOpen ?? false,
@@ -79,11 +81,17 @@ export function CatalogFilters(rawProps: CatalogFiltersProps) {
   const isOpen =
     controlledIsOpen !== undefined ? controlledIsOpen : uncontrolledIsOpen;
 
+  /**
+   * SOURCE OF TRUTH KEYWORDS: toggleOpen, controlledFilterExpansion, panelVisibility, disclosureToggle, CatalogFilters
+   * WHAT: Handles opening and collapsing the facet filters panel, supporting both uncontrolled local state and controlled parent coordination.
+   * WHY: Enables standalone disclosure clicks while forwarding toggle events cleanly to parent coordinators like CatalogSearchSection.
+   * WHERE: app/catalog/_components/catalog-filters.tsx.
+   */
   const toggleOpen = () => {
     if (controlledIsOpen === undefined) {
       setUncontrolledIsOpen((prev) => !prev);
     }
-    rawProps.onToggle?.();
+    onToggle?.();
   };
 
   const activeSecondaryCount = countActiveSecondaryFilters(query);
@@ -93,15 +101,19 @@ export function CatalogFilters(rawProps: CatalogFiltersProps) {
       ? `Filters (${activeSecondaryCount})`
       : "Filters";
 
-  const formClassName = hideHeaderToggle
-    ? isOpen
-      ? "rounded-[20px] border border-border bg-card p-4 transition-all duration-200 sm:p-6"
-      : "pointer-events-none border-transparent bg-transparent p-0 transition-all duration-200"
-    : "rounded-[20px] border border-border bg-card p-4 transition-all duration-200 sm:p-6";
+  const activePanelClassName =
+    "rounded-[20px] border border-border bg-card p-4 transition-all duration-200 sm:p-6";
+  const collapsedHiddenHeaderClassName =
+    "pointer-events-none border-transparent bg-transparent p-0 transition-all duration-200";
+
+  const formClassName =
+    hideHeaderToggle && !isOpen
+      ? collapsedHiddenHeaderClassName
+      : activePanelClassName;
 
   return (
     <form action="/catalog" className={formClassName}>
-      <input type="hidden" name="q" defaultValue={query.q ?? ""} />
+      <input type="hidden" name="q" value={draftKeyword ?? query.q ?? ""} />
 
       {/* Header Bar: Collapsible Toggle Button and Clear Filters Action */}
       {!hideHeaderToggle && (
@@ -149,7 +161,6 @@ export function CatalogFilters(rawProps: CatalogFiltersProps) {
       {/* Collapsible Fields Panel with Smooth Grid Accordion Transition */}
       <div
         id="catalog-filters-panel"
-        hidden={!isOpen}
         className={`grid transition-[grid-template-rows] duration-200 ease-out motion-reduce:transition-none ${
           isOpen ? "grid-rows-[1fr]" : "grid-rows-[0fr]"
         }`}
