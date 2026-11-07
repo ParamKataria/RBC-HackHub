@@ -296,7 +296,17 @@ function recordBrief(record: CatalogRecord): RecordBrief {
  * WHERE: The ask response citations array.
  */
 function evidenceCitations(records: readonly CatalogRecord[]): AskCitation[] {
-  return records.map((record) => ({ id: record.id, title: record.dc_title }));
+  return records.map((record) => ({
+    id: record.id,
+    title: record.dc_title,
+    publisher: record.dc_publisher,
+    access:
+      record.dcterms_access_rights ??
+      (record.bccns_digitized
+        ? "A scan URL is stored with this record."
+        : "Ask the holding institution how to see it."),
+    sourceUrl: record.dc_identifier,
+  }));
 }
 
 
@@ -453,8 +463,13 @@ const KEYWORD_STOP_WORDS = new Set([
   "community",
   "communities",
   "archive",
+  "archives",
   "document",
   "documents",
+  "find",
+  "hold",
+  "holds",
+  "information",
 ]);
 
 /**
@@ -483,17 +498,33 @@ function longestCatalogName(
 }
 
 /**
- * SOURCE OF TRUTH KEYWORDS: properNameTokens, capitalizedNames, question, keywords, searchTerms
- * WHAT: Reads the capitalized names written in a question.
- * WHY: Filter keywords and the global search must use the same names.
- * WHERE: filtersFromQuestion and searchTerms in lib/services/ask.ts.
+ * SOURCE OF TRUTH KEYWORDS: contentTerms, questionTokens, KEYWORD_STOP_WORDS, searchTerms, filtersFromQuestion
+ * WHAT: Keeps the distinctive words of a question, including words that are not capitalized.
+ * WHY: A capitalized word such as "Canada" must not replace the subject the person asked about.
+ * WHERE: filtersFromQuestion, searchTerms, and selectEvidence in lib/services/ask.ts.
  */
-function properNameTokens(question: string): string[] {
-  return (
-    question.match(
-      /\b[A-Z][A-Za-z'’.-]{2,}(?:\s+[A-Z][A-Za-z'’.-]{2,})*/g,
-    ) ?? []
-  ).flatMap((phrase) => phrase.toLowerCase().match(/[a-z0-9]+/g) ?? []);
+function contentTerms(question: string): string[] {
+  return [...new Set(questionTokens(question))].filter(
+    (token) =>
+      token.length > 3 &&
+      !KEYWORD_STOP_WORDS.has(token) &&
+      !/^\d/.test(token),
+  );
+}
+
+/**
+ * SOURCE OF TRUTH KEYWORDS: coveredTokens, SearchQuery, place, subject, creator, institution
+ * WHAT: Lists words already used by a place, subject, creator, or institution filter.
+ * WHY: Those words stay in the structured filter, so the keyword query can require the remaining subject words.
+ * WHERE: searchTerms and companionQueries in lib/services/ask.ts.
+ */
+function coveredTokens(filters: SearchQuery): Set<string> {
+  return new Set(
+    [filters.place, filters.subject, filters.creator, filters.institution]
+      .join(" ")
+      .toLowerCase()
+      .match(/[a-z0-9]+/g) ?? [],
+  );
 }
 
 /**
@@ -536,18 +567,7 @@ export function filtersFromQuestion(
       .toLowerCase()
       .match(/[a-z0-9]+/g) ?? [],
   );
-  const properNames = properNameTokens(question);
-  const keywords = [
-    ...new Set(
-      properNames.length > 0 ? properNames : questionTokens(question),
-    ),
-  ].filter(
-    (token) =>
-      token.length > 3 &&
-      !used.has(token) &&
-      !KEYWORD_STOP_WORDS.has(token) &&
-      !/^\d/.test(token),
-  );
+  const keywords = contentTerms(question).filter((token) => !used.has(token));
   const identified = Boolean(place || subject || institution || creator || type);
   const q =
     !identified || keywords.length > 0
@@ -564,21 +584,17 @@ export function filtersFromQuestion(
 }
 
 /**
- * SOURCE OF TRUTH KEYWORDS: searchTerms, properNames, KEYWORD_STOP_WORDS, globalQuestionSearch, companionQueries
- * WHAT: Keeps the distinctive names in a question, at most four.
- * WHY: Searching common words such as "records" matches most of the catalog and slows the query.
+ * SOURCE OF TRUTH KEYWORDS: searchTerms, contentTerms, KEYWORD_STOP_WORDS, globalQuestionSearch, companionQueries
+ * WHAT: Keeps the distinctive words in a question, at most four, after structured filters take their names.
+ * WHY: Searching common words such as "records" matches most of the catalog, and dropping the subject words matches the wrong records.
  * WHERE: companionQueries and globalQuestionSearch.
  */
-function searchTerms(question: string): string[] {
-  const properNames = properNameTokens(question);
-  const source = properNames.length > 0 ? properNames : questionTokens(question);
-  return [...new Set(source)]
-    .filter(
-      (token) =>
-        token.length > 3 &&
-        !KEYWORD_STOP_WORDS.has(token) &&
-        !/^\d/.test(token),
-    )
+function searchTerms(
+  question: string,
+  covered: ReadonlySet<string> = new Set(),
+): string[] {
+  return contentTerms(question)
+    .filter((token) => !covered.has(token))
     .slice(0, 4);
 }
 
@@ -601,31 +617,26 @@ function companionQueries(
   } else if (filters.place) {
     companions.push(searchQuerySchema.parse({ subject: filters.place }));
   }
-  const words = searchTerms(question).filter(
-    (token) =>
-      token !== filters.place?.toLowerCase() &&
-      token !== filters.subject?.toLowerCase(),
-  );
+  const words = searchTerms(question, coveredTokens(filters));
   if (words.length > 0 && filters.place) {
     companions.push(
-      searchQuerySchema.parse({ q: words.join(" OR "), place: filters.place }),
+      searchQuerySchema.parse({ q: words.join(" "), place: filters.place }),
     );
   } else if (words.length > 0 && filters.subject) {
     companions.push(
       searchQuerySchema.parse({
-        q: words.join(" OR "),
+        q: words.join(" "),
         subject: filters.subject,
       }),
     );
   }
-  if (
-    filters.q &&
-    (filters.place ||
-      filters.subject ||
-      filters.institution ||
-      filters.creator ||
-      filters.type)
-  ) {
+  const anchors = [
+    filters.place,
+    filters.subject,
+    filters.creator,
+    filters.institution,
+  ].filter(Boolean).length;
+  if (filters.q && anchors >= 2) {
     companions.push(searchQuerySchema.parse({ ...filters, q: undefined }));
   }
   return companions;
@@ -637,13 +648,16 @@ function companionQueries(
  * WHY: The catalog ask is a search of the whole archive, so a citation can come from any matching record.
  * WHERE: askArchive when the viewer is not standing in a room or in front of a record.
  */
-async function globalQuestionSearch(question: string): Promise<CatalogRecord[]> {
-  const words = searchTerms(question);
+async function globalQuestionSearch(
+  question: string,
+  filters: SearchQuery,
+): Promise<CatalogRecord[]> {
+  const words = searchTerms(question, coveredTokens(filters));
   if (words.length === 0) {
     return [];
   }
   const extra = await searchRecords(
-    searchQuerySchema.parse({ q: words.join(" OR ") }),
+    searchQuerySchema.parse({ q: words.join(" ") }),
     {
       limit: EVIDENCE_POOL,
     },
@@ -699,15 +713,14 @@ async function recordsInView(
 
 /**
  * SOURCE OF TRUTH KEYWORDS: selectEvidence, ScoredEvidenceRecord, EVIDENCE_LIMIT, questionTokens, CatalogRecord
- * WHAT: Orders the gathered records by how many question words they contain and keeps a wide set.
- * WHY: Alphabetical catalog order hides a matching article behind the first photographs.
+ * WHAT: Orders the gathered records by how many question words they contain and drops records that contain none.
+ * WHY: Alphabetical catalog order hides a matching article behind the first photographs, and a score of zero is a different subject.
  * WHERE: askArchive, before the summary prompt.
  */
 function selectEvidence(
-  question: string,
+  tokens: readonly string[],
   records: readonly CatalogRecord[],
 ): CatalogRecord[] {
-  const tokens = questionTokens(question);
   const scored: ScoredEvidenceRecord[] = records.map((record) => {
     const title = record.dc_title.toLowerCase();
     const haystack =
@@ -732,7 +745,10 @@ function selectEvidence(
       right.descriptionLength - left.descriptionLength ||
       left.record.dc_title.localeCompare(right.record.dc_title),
   );
-  return scored.slice(0, EVIDENCE_LIMIT).map((entry) => entry.record);
+  return scored
+    .filter((entry) => entry.score > 0)
+    .slice(0, EVIDENCE_LIMIT)
+    .map((entry) => entry.record);
 }
 
 /**
@@ -757,7 +773,7 @@ export async function askArchive(
     recordsInView(view),
     view
       ? Promise.resolve(emptyCatalogRecords)
-      : globalQuestionSearch(question),
+      : globalQuestionSearch(question, filters),
     ...queries.map((query) => searchRecords(query, { limit: EVIDENCE_POOL })),
   ]);
   const strict = hasSearchFilter(filters) ? pages[0] : undefined;
@@ -801,11 +817,22 @@ export async function askArchive(
     ).values(),
   ];
   const viewedIds = new Set(viewed.records.map((record) => record.id));
+  const required = searchTerms(question, coveredTokens(filters));
   const ranked = selectEvidence(
-    question,
+    required.length > 0 ? required : contentTerms(question),
     gathered.filter((record) => !viewedIds.has(record.id)),
   );
   const records = [...viewed.records, ...ranked].slice(0, EVIDENCE_LIMIT);
+  if (records.length === 0 && viewed.wall.length === 0) {
+    return askResponseSchema.parse({
+      question,
+      filters,
+      count: 0,
+      claims: [{ text: noArchiveSourceMessage, citedRecordIds: [] }],
+      summary: noArchiveSourceMessage,
+      citations: [],
+    });
+  }
   const wallById = new Map(
     viewed.wall.map((record) => [record.id.toLowerCase(), record]),
   );

@@ -130,6 +130,34 @@ describe("chooseChapter", () => {
     expect(placement).toBeNull();
   });
 
+  it("keeps a page titled for the battalion even when the article date is modern", () => {
+    const placement = chooseChapter(
+      record({
+        title: "No. 2 Construction Battalion",
+        description: "A national history published for readers in 2016.",
+        publisher: "The Canadian Encyclopedia",
+        source: "The Canadian Encyclopedia",
+        date: "2016-02-10",
+      }),
+    );
+
+    expect(placement?.key).toBe("construction_battalion");
+  });
+
+  it("keeps a page titled for Caribbean Canadians in that chapter", () => {
+    const placement = chooseChapter(
+      record({
+        title: "Caribbean Canadians",
+        description: "Communities grew after 1967.",
+        publisher: "The Canadian Encyclopedia",
+        source: "The Canadian Encyclopedia",
+        date: "2019-01-01",
+      }),
+    );
+
+    expect(placement?.key).toBe("caribbean_migrants");
+  });
+
   it("leaves a modern slavery poster with no Nova Scotia year out of the Halifax room", () => {
     const placement = chooseChapter(
       record({

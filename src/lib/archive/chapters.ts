@@ -52,6 +52,8 @@ const YEAR_PATTERN = /\b(1[6-9]\d{2}|20[0-2]\d)\b/g;
 type ChapterRule = {
   key: CollectionKey;
   specific: readonly string[];
+  /** Title-only names. A web page can carry this title even when the article mentions other years. */
+  titleMarks: readonly string[];
   broad: readonly string[];
 };
 
@@ -64,17 +66,20 @@ const chapterRules: readonly ChapterRule[] = [
       "forestry corps",
       "william andrew white",
     ],
+    titleMarks: ["construction battalion", "no. 2 construction"],
     broad: ["first world war"],
   },
   {
     key: "the_maroons",
     specific: ["maroon", "trelawny"],
+    titleMarks: [],
     broad: [],
   },
   {
     key: "caribbean_migrants",
     specific: ["whitney pier", "caribbean migrant"],
-    broad: ["caribbean", "west indies", "barbados", "trinidad"],
+    titleMarks: ["caribbean"],
+    broad: ["west indies", "barbados", "trinidad"],
   },
   {
     key: "the_refugees",
@@ -84,6 +89,7 @@ const chapterRules: readonly ChapterRule[] = [
       "melville island",
       "hammonds plains",
     ],
+    titleMarks: [],
     broad: ["cherry brook"],
   },
   {
@@ -96,11 +102,13 @@ const chapterRules: readonly ChapterRule[] = [
       "david george",
       "thomas peters",
     ],
+    titleMarks: [],
     broad: [],
   },
   {
     key: "slavery_and_halifax",
     specific: ["slavery", "enslaved", "slave"],
+    titleMarks: [],
     broad: [],
   },
 ];
@@ -226,15 +234,20 @@ function mentionsNovaScotia(
 
 export function chooseChapter(record: ChapterRecordText): ChapterPlacement | null {
   const found = historicalYear(record);
-  if (isPublicationDatePublisher(record.publisher) && found === null) {
-    return null;
-  }
   const title = record.title.toLowerCase();
   const body = `${record.description ?? ""} ${record.source}`.toLowerCase();
+  const pagePublisher = isPublicationDatePublisher(record.publisher);
   let best: ChapterPlacement | null = null;
 
   for (const rule of chapterRules) {
-    const yearOk = found === null || yearFitsChapter(found.year, rule.key);
+    const titled =
+      rule.specific.some((phrase) => title.includes(phrase)) ||
+      rule.titleMarks.some((phrase) => title.includes(phrase));
+    // A web page titled for the chapter can name other years in the article.
+    const yearOk =
+      found === null ||
+      yearFitsChapter(found.year, rule.key) ||
+      (titled && pagePublisher);
     if (!yearOk) continue;
     if (
       rule.key === "slavery_and_halifax" &&
@@ -243,13 +256,14 @@ export function chooseChapter(record: ChapterRecordText): ChapterPlacement | nul
       continue;
     }
 
-    let score = phraseScore(
-      title,
-      body,
-      rule.specific,
-      TITLE_SPECIFIC_SCORE,
-      BODY_SPECIFIC_SCORE,
-    );
+    let score =
+      phraseScore(
+        title,
+        body,
+        rule.specific,
+        TITLE_SPECIFIC_SCORE,
+        BODY_SPECIFIC_SCORE,
+      ) + phraseScore(title, "", rule.titleMarks, TITLE_SPECIFIC_SCORE, 0);
     // A broad word in the body of a national overview is not enough to enter a chapter.
     if (found !== null) {
       score += phraseScore(title, "", rule.broad, TITLE_BROAD_SCORE, 0);
