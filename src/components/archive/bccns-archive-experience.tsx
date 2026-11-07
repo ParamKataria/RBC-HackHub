@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import React, { ViewTransition, addTransitionType, startTransition, useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { BsStars } from "react-icons/bs";
 import * as THREE from "three";
 import { Reflector } from "three/examples/jsm/objects/Reflector.js";
@@ -33,39 +34,36 @@ import type {
  * WHERE: Rendered by app/page.tsx and app/museum/page.tsx.
  */
 
+type CoverTransitionType = "nav-forward" | "nav-back" | "gate-switch";
+
 /**
- * SOURCE OF TRUTH KEYWORDS: ArchiveGateFrame, ViewTransition, swap-up, swap-down
- * WHAT: Root view-transition boundary for one landing cover.
- * WHY: The transition only runs when this component itself is the boundary. A wrapping div makes the cover blink and fade.
- * WHERE: Arrival and ask covers inside BccnsArchiveExperience.
+ * SOURCE OF TRUTH KEYWORDS: startViewTransition, bccns-gate, nav-forward, nav-back, gate-switch
+ * WHAT: Runs a landing-cover update inside the browser view-transition callback.
+ * WHY: addTransitionType is not a stable React export. document.startViewTransition is the public contract, and browsers without it apply the update immediately.
+ * WHERE: showGateView in BccnsArchiveExperience.
  */
-function ArchiveGateFrame({
-  children,
-  onExit,
-}: {
-  children: React.ReactNode;
-  onExit: () => void;
-}) {
-  return (
-    <ViewTransition
-      enter={{
-        "nav-forward": "swap-up",
-        "nav-back": "swap-down",
-        "gate-switch": "swap-up",
-        default: "none",
-      }}
-      exit={{
-        "nav-forward": "swap-up",
-        "nav-back": "swap-down",
-        "gate-switch": "swap-up",
-        default: "none",
-      }}
-      default="none"
-      onExit={onExit}
-    >
-      {children}
-    </ViewTransition>
-  );
+function runCoverTransition(update: () => void, type: CoverTransitionType) {
+  const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const start = (
+    document as Document & {
+      startViewTransition?: (callback: () => void) => { finished: Promise<void> };
+    }
+  ).startViewTransition;
+  if (reduced || typeof start !== "function") {
+    update();
+    return;
+  }
+  const root = document.documentElement;
+  root.dataset.coverTransition = type;
+  const clearType = () => {
+    delete root.dataset.coverTransition;
+  };
+  try {
+    start(update).finished.then(clearType, clearType);
+  } catch {
+    clearType();
+    update();
+  }
 }
 
 interface PreloaderState {
@@ -409,7 +407,7 @@ export function BccnsArchiveExperience({
   const cursorRef = useRef<HTMLDivElement | null>(null);
   const arrivalViewRef = useRef<HTMLElement | null>(null);
   const askViewRef = useRef<HTMLElement | null>(null);
-  const leavingToArchiveRef = useRef(false);
+  const gateOpenRef = useRef(true);
   const settledKeyRef = useRef<string | null>(null);
   const [settledNote, setSettledNote] = useState<SettledNote | null>(null);
 
@@ -517,6 +515,12 @@ export function BccnsArchiveExperience({
   }, [sceneOpen]);
 
   useEffect(() => {
+    const wasOpen = gateOpenRef.current;
+    gateOpenRef.current = !sceneOpen;
+    if (wasOpen && sceneOpen) {
+      document.getElementById("bccnsWordmarkBtn")?.focus();
+      return;
+    }
     if (sceneOpen) return;
     const activeView = gateView === "ask" ? askViewRef.current : arrivalViewRef.current;
     activeView?.focus();
@@ -1945,18 +1949,18 @@ export function BccnsArchiveExperience({
    * WHY: Entering the rotunda moves forward. Returning from ask to the introduction moves back. Switching into ask is a sideways step.
    * WHERE: showGateView.
    */
-  const gateTransitionType = (next: ArchiveGateView): "nav-forward" | "nav-back" | "gate-switch" => {
+  const gateTransitionType = (next: ArchiveGateView): CoverTransitionType => {
     if (next === "archive") return "nav-forward";
     if (next === "arrival" && gateView === "ask") return "nav-back";
     return "gate-switch";
   };
 
   const showGateView = (next: ArchiveGateView) => {
-    leavingToArchiveRef.current = next === "archive";
-    startTransition(() => {
-      addTransitionType(gateTransitionType(next));
-      setGateView(next);
-    });
+    runCoverTransition(() => {
+      flushSync(() => {
+        setGateView(next);
+      });
+    }, gateTransitionType(next));
     if (next !== "archive") return;
     engineRef.current.arrivalHidden = true;
   };
@@ -2787,14 +2791,13 @@ export function BccnsArchiveExperience({
       </div>
 
       {!sceneOpen && (
-      <ArchiveGateFrame
-        key={gateView}
-        onExit={() => {
-          if (!leavingToArchiveRef.current) return;
-          document.getElementById("bccnsWordmarkBtn")?.focus();
-        }}
+      <main
+        className="bccns-arrival-screen"
+        id="startScreen"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={gateView === "ask" ? "bccns-ask-title" : "bccns-arrival-title"}
       >
-      <main className="bccns-arrival-screen" id="startScreen">
         <div className="bccns-view-stage">
           {gateView === "arrival" ? (
           <section
@@ -2929,7 +2932,6 @@ export function BccnsArchiveExperience({
           )}
         </div>
       </main>
-      </ArchiveGateFrame>
       )}
     </div>
   );

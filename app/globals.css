@@ -1460,6 +1460,7 @@
     max(16px, env(safe-area-inset-bottom))
     max(16px, env(safe-area-inset-left));
   overflow: hidden;
+  view-transition-name: bccns-gate;
   overscroll-behavior: none;
   touch-action: none;
   text-align: left;
@@ -1977,25 +1978,26 @@
   animation: none;
 }
 
-::view-transition-group(.swap-up),
-::view-transition-group(.swap-down) {
+::view-transition-group(bccns-gate) {
   animation: none;
 }
 
 /* Full-viewport cover travel. Longer than a control press so the eye can follow the page. */
-::view-transition-old(.swap-up) {
+html[data-cover-transition="nav-forward"]::view-transition-old(bccns-gate),
+html[data-cover-transition="gate-switch"]::view-transition-old(bccns-gate) {
   animation: var(--duration-cover) var(--ease-drawer) both swap-up-leave;
 }
 
-::view-transition-new(.swap-up) {
+html[data-cover-transition="nav-forward"]::view-transition-new(bccns-gate),
+html[data-cover-transition="gate-switch"]::view-transition-new(bccns-gate) {
   animation: var(--duration-cover) var(--ease-drawer) both swap-up-enter;
 }
 
-::view-transition-old(.swap-down) {
+html[data-cover-transition="nav-back"]::view-transition-old(bccns-gate) {
   animation: var(--duration-cover) var(--ease-drawer) both swap-down-leave;
 }
 
-::view-transition-new(.swap-down) {
+html[data-cover-transition="nav-back"]::view-transition-new(bccns-gate) {
   animation: var(--duration-cover) var(--ease-drawer) both swap-down-enter;
 }
 
