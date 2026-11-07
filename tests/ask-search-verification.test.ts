@@ -1065,5 +1065,113 @@ describe("CatalogFilters Contract and Query Preservation", () => {
   });
 });
 
+/**
+ * SOURCE OF TRUTH KEYWORDS: catalogCollapsibleFiltersTest, CatalogFilters, collapsibleFacetPanel, activeFiltersBadge, clearFiltersPreservingQ, accessibleDisclosure
+ * WHAT: Unit and contract tests verifying that CatalogFilters acts as an accessible collapsible facet panel with an active count badge and keyword-preserving filter reset.
+ * WHY: Verifies Ticket 03 requirements ensuring secondary filters are collapsed by default with clear visual cues and clean filter state resetting.
+ * WHERE: tests/ask-search-verification.test.ts (verifies Ticket 03).
+ */
+describe("CatalogFilters Collapsible Panel and Active Count Badge", () => {
+  const samplePublishers = [
+    "BCCNS",
+    "Nova Scotia Archives",
+    "Dalhousie University",
+  ];
+
+  it("renders in a collapsed state by default with accessible toggle attributes", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(CatalogFilters, {
+        publishers: samplePublishers,
+        query: {},
+      }),
+    );
+
+    expect(html).toContain('type="button"');
+    expect(html).toContain('aria-expanded="false"');
+    expect(html).toContain('aria-controls="catalog-filters-panel"');
+    expect(html).toContain('id="catalog-filters-panel"');
+    expect(html).toContain("Filters");
+  });
+
+  it("displays an active filter count badge reflecting the number of secondary filters (excluding q)", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(CatalogFilters, {
+        publishers: samplePublishers,
+        query: {
+          q: "Africville",
+          institution: "BCCNS",
+          type: "photograph",
+          place: "Halifax",
+        },
+      }),
+    );
+
+    // 3 secondary filters active: institution, type, place (q is excluded)
+    expect(html).toContain("Filters (3)");
+    expect(html).toContain('data-testid="catalog-filters-badge"');
+    expect(html).toContain(">3<");
+  });
+
+  it("renders a 'Clear filters' link when secondary filters exist, preserving the keyword query q", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(CatalogFilters, {
+        publishers: samplePublishers,
+        query: {
+          q: "Africville Heritage",
+          institution: "BCCNS",
+          type: "document",
+        },
+      }),
+    );
+
+    expect(html).toContain("Clear filters");
+    expect(html).toContain('href="/catalog?q=Africville%20Heritage"');
+  });
+
+  it("does not render 'Clear filters' when no secondary filters are active", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(CatalogFilters, {
+        publishers: samplePublishers,
+        query: {
+          q: "Africville Heritage",
+        },
+      }),
+    );
+
+    expect(html).not.toContain("Clear filters");
+    expect(html).not.toContain('data-testid="catalog-filters-badge"');
+  });
+
+  it("renders 'Clear filters' pointing to /catalog when secondary filters exist but q is omitted", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(CatalogFilters, {
+        publishers: samplePublishers,
+        query: {
+          institution: "BCCNS",
+        },
+      }),
+    );
+
+    expect(html).toContain("Clear filters");
+    expect(html).toContain('href="/catalog"');
+  });
+
+  it("renders with aria-expanded='true' and revealed panel when defaultOpen is true", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(CatalogFilters, {
+        publishers: samplePublishers,
+        query: { institution: "BCCNS" },
+        defaultOpen: true,
+      }),
+    );
+
+    expect(html).toContain('aria-expanded="true"');
+    expect(html).toContain('id="catalog-filters-panel"');
+    expect(html).not.toContain('id="catalog-filters-panel" hidden=""');
+    expect(html).toContain("border-t border-border/60");
+  });
+});
+
+
 
 

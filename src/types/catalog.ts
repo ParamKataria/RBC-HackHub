@@ -189,6 +189,7 @@ export type CatalogRecordPageProps = z.infer<typeof catalogRecordPagePropsSchema
 export const catalogFiltersPropsSchema = z.object({
   publishers: z.array(z.string()),
   query: searchQuerySchema,
+  defaultOpen: z.boolean().optional(),
 });
 
 export type CatalogFiltersProps = z.infer<typeof catalogFiltersPropsSchema>;
