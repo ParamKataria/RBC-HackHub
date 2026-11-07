@@ -12,6 +12,10 @@ export const metadata: Metadata = {
   title: "Black Cultural Centre for Nova Scotia: Digital Archive",
   description:
     "Interactive digital archive of the Black Cultural Centre for Nova Scotia, Cherry Brook (established 1983). Explore African Nova Scotian records held across Nova Scotia Archives, Library and Archives Canada, the Black Loyalist Heritage Centre, and the Centre's collections.",
+  icons: {
+    icon: [{ url: "/favicon.ico", sizes: "any" }],
+    apple: [{ url: "/apple-touch-icon.png", sizes: "180x180" }],
+  },
 };
 
 const geistSans = Geist({
