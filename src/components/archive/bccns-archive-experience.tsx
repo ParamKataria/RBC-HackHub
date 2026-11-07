@@ -859,20 +859,7 @@ export function BccnsArchiveExperience({
     });
     st.floorReflectors = [];
 
-    st.floorReflectors.push(
-      archiveEffects.createFloorReflector(roomBuild.reflector01, {
-        width: 26,
-        height: 19,
-        opacity: 0.055,
-        matteColor: 0xe8d9c8,
-      }),
-      archiveEffects.createFloorReflector(roomBuild.reflector02, {
-        width: 26,
-        height: 19,
-        opacity: 0.055,
-        matteColor: 0xe8d9c8,
-      }),
-    );
+    // The gallery floor is the solid plaster plane. A mirror here redraws every frame in the hall.
 
     st.energyControllers = [];
     st.lightControllers = [];
@@ -979,7 +966,7 @@ export function BccnsArchiveExperience({
       });
     };
     for (const picMesh of roomBuild.pictureMeshes) {
-      st.stationShaderControllers.push(shadeBoardSurface(picMesh, true));
+      st.stationShaderControllers.push(shadeBoardSurface(picMesh, false));
     }
     for (const labelMesh of roomBuild.stationLabelMeshes) {
       shadeBoardSurface(labelMesh, false);
@@ -1162,7 +1149,7 @@ export function BccnsArchiveExperience({
       antialias: true,
       powerPreference: "high-performance",
     });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.setClearColor(0xe8d9c8, 1);
     container.innerHTML = "";
@@ -1259,6 +1246,8 @@ export function BccnsArchiveExperience({
     let hallTargetPitch = 0;
     let hallInputAt = 0;
     let roomInputAt = 0;
+    let lastRoomRaycast = 0;
+    let liftedPic: THREE.Mesh | null = null;
 
     const onWheel = (e: WheelEvent) => {
       const wheelTarget = e.target as HTMLElement | null;
@@ -1282,7 +1271,7 @@ export function BccnsArchiveExperience({
         if (st.welcomeOpen) {
           closeWelcomeCard();
         }
-        const roomDelta = e.deltaY * 0.006;
+        const roomDelta = e.deltaY * 0.016;
         st.roomTravel += roomDelta;
         st.roomTargetX = THREE.MathUtils.clamp(
           st.roomTargetX + roomDelta,
@@ -1434,6 +1423,10 @@ export function BccnsArchiveExperience({
           );
         }
 
+        const roomTraveling = Math.abs(st.roomTargetX - st.roomCurrentX) > 1.2;
+        const raycastNow = performance.now();
+        if (!roomTraveling && raycastNow - lastRoomRaycast > 40) {
+          lastRoomRaycast = raycastNow;
         raycaster.setFromCamera(pointerNDC, st.activeCamera);
         const picHits = raycaster.intersectObjects(
           [
@@ -1504,6 +1497,7 @@ export function BccnsArchiveExperience({
           setCursorInteractive(false);
           setPortalPromptText(null);
         }
+        }
       }
     };
 
@@ -1566,6 +1560,7 @@ export function BccnsArchiveExperience({
 
     const onResize = () => {
       if (!st.renderer || !st.activeCamera) return;
+      st.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
       st.renderer.setSize(window.innerWidth, window.innerHeight);
       if (st.appMode === "hall") {
         archiveEffects.updateResponsiveCameraZoom(
@@ -1734,10 +1729,11 @@ export function BccnsArchiveExperience({
             );
             st.roomTravel = 0;
           }
-          const pull = 1 - Math.exp(-2.6 * dt);
+          const pull = 1 - Math.exp(-9 * dt);
           st.roomTargetX += (st.roomLatch - st.roomTargetX) * pull;
         }
-        st.roomCurrentX += (st.roomTargetX - st.roomCurrentX) * 0.085;
+        const follow = 1 - Math.exp(-14 * dt);
+        st.roomCurrentX += (st.roomTargetX - st.roomCurrentX) * follow;
         st.viewNode.position.x = st.roomCurrentX;
 
         st.roomLookRotX += (st.roomTargetLookRotX - st.roomLookRotX) * 0.12;
@@ -1756,7 +1752,8 @@ export function BccnsArchiveExperience({
           Math.min(100, ((st.roomCurrentX - st.roomMinX) / span) * 100),
         );
 
-        if (Math.abs(pct - st.roomProgress) > 0.05) {
+        const progressMark = Math.round(pct);
+        if (progressMark !== Math.round(st.roomProgress)) {
           st.roomProgress = pct;
           setRoomProgress(pct);
 
@@ -1841,16 +1838,22 @@ export function BccnsArchiveExperience({
           }
         }
 
-        for (const pic of st.currentRoomBuild.pictureMeshes) {
-          const isHov = pic === st.hoveredPicMesh;
-          const baseX = Number(pic.userData.baseX || 0);
-          const baseZ = Number(pic.userData.baseZ || 0);
-          const nX = Number(pic.userData.normalX || 0);
-          const nZ = Number(pic.userData.normalZ || 0);
-          // Hovered frames lift gently off the wall along their facing normal
-          const lift = isHov ? 0.06 : 0;
-          pic.position.x += (baseX + nX * lift - pic.position.x) * 0.14;
-          pic.position.z += (baseZ + nZ * lift - pic.position.z) * 0.14;
+        const hoveredPic = st.hoveredPicMesh;
+        if (liftedPic && liftedPic !== hoveredPic) {
+          liftedPic.position.x = Number(liftedPic.userData.baseX || 0);
+          liftedPic.position.z = Number(liftedPic.userData.baseZ || 0);
+          liftedPic.updateMatrix();
+          liftedPic = null;
+        }
+        if (hoveredPic) {
+          const baseX = Number(hoveredPic.userData.baseX || 0);
+          const baseZ = Number(hoveredPic.userData.baseZ || 0);
+          const nX = Number(hoveredPic.userData.normalX || 0);
+          const nZ = Number(hoveredPic.userData.normalZ || 0);
+          hoveredPic.position.x += (baseX + nX * 0.06 - hoveredPic.position.x) * 0.14;
+          hoveredPic.position.z += (baseZ + nZ * 0.06 - hoveredPic.position.z) * 0.14;
+          hoveredPic.updateMatrix();
+          liftedPic = hoveredPic;
         }
 
         if (st.roomFaderController) st.roomFaderController.update();
@@ -1858,8 +1861,14 @@ export function BccnsArchiveExperience({
         for (const lights of st.lightControllers) lights.update(dt, elapsed);
         for (const preview of st.previewControllers)
           preview.update(dt, elapsed, st.roomLookRotY * 18);
-        for (const picShader of st.stationShaderControllers)
+        for (const picShader of st.stationShaderControllers) {
+          if (picShader.mesh !== st.hoveredPicMesh) {
+            const hover = picShader.material.uniforms.uHover.value as number;
+            if (hover < 0.01) continue;
+          }
+          if (Math.abs(picShader.mesh.position.x - st.roomCurrentX) > 16) continue;
           picShader.update(dt, elapsed);
+        }
       }
 
       if (st.renderer && st.scene && st.activeCamera) {
@@ -1953,7 +1962,7 @@ export function BccnsArchiveExperience({
    */
   const gateTransitionType = (next: ArchiveGateView): CoverTransitionType => {
     if (next === "archive") return "nav-forward";
-    if (next === "arrival" && gateView === "ask") return "nav-back";
+    if (next === "arrival" && (gateView === "ask" || gateView === "archive")) return "nav-back";
     return "gate-switch";
   };
 
@@ -2067,6 +2076,27 @@ export function BccnsArchiveExperience({
           >
             The Centre
           </button>
+          {appMode === "museum" ? (
+            <button
+              type="button"
+              className="bccns-text-link"
+              id="exitHallwayBtn"
+              onClick={() => {
+                void returnToRotundaScene();
+              }}
+            >
+              Rotunda
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="bccns-text-link"
+              id="exitRotundaBtn"
+              onClick={() => showGateView("arrival")}
+            >
+              Back
+            </button>
+          )}
         </nav>
       </header>
 

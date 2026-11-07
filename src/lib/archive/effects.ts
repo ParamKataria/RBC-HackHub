@@ -298,6 +298,8 @@ export interface FloorReflectorOptions {
  * WHY: Gives the colonnade and rotunda a pale reflective floor without harsh mirror glare.
  * WHERE: Hall and gallery floor setup.
  */
+let floorReflectorSerial = 0;
+
 export function createFloorReflector(
   reflectorAnchor: THREE.Object3D,
   {
@@ -318,12 +320,22 @@ export function createFloorReflector(
 
   const reflector = new Reflector(geom, {
     clipBias: 0.003,
-    textureWidth: 512,
-    textureHeight: 512,
+    textureWidth: 256,
+    textureHeight: 256,
     color: 0x8a8278,
     multisample: 0,
     shader,
   });
+  // Two gallery mirrors would each redraw the whole hall. They alternate frames.
+  const renderMirror = reflector.onBeforeRender;
+  const mirrorSlot = floorReflectorSerial % 2;
+  floorReflectorSerial += 1;
+  let mirrorTick = 0;
+  reflector.onBeforeRender = function (this: typeof reflector, ...args) {
+    mirrorTick += 1;
+    if ((mirrorTick & 1) !== mirrorSlot) return;
+    renderMirror.apply(this, args);
+  };
 
   const mat = reflector.material as THREE.ShaderMaterial;
   mat.transparent = true;
@@ -756,9 +768,18 @@ export function applyPortalPreviewShader(
     fog: true,
   });
 
-  // merge() clones the canvas texture. Later scan uploads only bump the original texture version.
+  // merge() clones the canvas texture. Keep the original so a later scan upload is visible,
+  // and free the clone. The replaced basic material must not dispose that shared scan.
+  const clonedPreview = material.uniforms.uTexture.value;
+  if (clonedPreview instanceof THREE.Texture && clonedPreview !== map) {
+    clonedPreview.dispose();
+  }
   if (map) {
     material.uniforms.uTexture.value = map;
+  }
+  if (origMat) {
+    origMat.map = null;
+    origMat.dispose();
   }
 
   previewMesh.material = material;
@@ -863,7 +884,7 @@ export function applyStationPictureShader(
         vec2 uv = (vUv - 0.5) * zoom + 0.5;
 
         // Gentle ambient wave that amplifies into a liquid ripple on hover
-        float waveStrength = uWave * (0.22 + 1.45 * uHover);
+        float waveStrength = uWave * 1.45 * uHover;
         uv.x += sin(vUv.y * 26.0 + uTime * 2.2) * 0.0024 * waveStrength;
         uv.y += cos(vUv.x * 12.0 + uTime * 1.4) * 0.0028 * waveStrength;
         uv = clamp(uv, 0.004, 0.996);
@@ -895,9 +916,16 @@ export function applyStationPictureShader(
     fog: true,
   });
 
-  // merge() clones the canvas texture. Later scan uploads only bump the original texture version.
+  const clonedScan = material.uniforms.uTexture.value;
+  if (clonedScan instanceof THREE.Texture && clonedScan !== map) {
+    clonedScan.dispose();
+  }
   if (map) {
     material.uniforms.uTexture.value = map;
+  }
+  if (origMat) {
+    origMat.map = null;
+    origMat.dispose();
   }
 
   picMesh.material = material;
