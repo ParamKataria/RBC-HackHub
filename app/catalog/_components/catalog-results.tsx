@@ -136,7 +136,13 @@ export async function CatalogResults({ searchParams }: CatalogPageProps) {
         </p>
       </header>
 
-      <ArchiveSearchBar autoNavigate={true} initialQuestion={filters.q} />
+      <ArchiveSearchBar
+        enableModeToggle={true}
+        defaultMode="keyword"
+        currentFilters={filters}
+        autoNavigate={true}
+        initialQuestion={filters.q}
+      />
 
       <section aria-label="Catalog totals" className={`${styles.totals} overflow-hidden`}>
         <dl className="grid grid-cols-2 md:grid-cols-5">

@@ -10,9 +10,9 @@ const fieldClassName =
   "flex h-10 w-full rounded-full border border-input bg-background px-4 text-sm text-foreground shadow-none transition-colors duration-150 hover:border-primary/60 focus-visible:border-primary motion-reduce:transition-none";
 
 /**
- * SOURCE OF TRUTH KEYWORDS: CatalogFilters, CatalogFiltersProps, /api/search, institution, creator, SearchQuery
- * WHAT: GET form whose fields match the full-text search route, including creator and historical date range inputs.
- * WHY: The catalog page is the interactive search screen for /api/search.
+ * SOURCE OF TRUTH KEYWORDS: CatalogFilters, CatalogFiltersProps, hiddenQueryParam, facetFilters, dateIntervals, secondarySearch
+ * WHAT: GET form with secondary facet controls (institution, type, creator, subject, place, date range) and hidden query preservation.
+ * WHY: Enables facet refinement while preserving the primary keyword search parameter across filter submissions.
  * WHERE: app/catalog/_components/catalog-results.tsx.
  */
 export function CatalogFilters(rawProps: CatalogFiltersProps) {
@@ -23,15 +23,7 @@ export function CatalogFilters(rawProps: CatalogFiltersProps) {
       action="/catalog"
       className="grid grid-cols-1 items-end gap-x-4 gap-y-4 rounded-[20px] border border-border bg-card p-6 sm:grid-cols-2 lg:grid-cols-6"
     >
-      <label className="flex flex-col gap-1.5 text-sm text-foreground sm:col-span-2 lg:col-span-6">
-        Search title, description, subject, place, or community
-        <Input
-          name="q"
-          defaultValue={query.q ?? ""}
-          placeholder="Search all sources"
-          className={fieldClassName}
-        />
-      </label>
+      <input type="hidden" name="q" defaultValue={query.q ?? ""} />
       <label className="flex flex-col gap-1.5 text-sm text-foreground lg:col-span-3">
         Institution
         <select

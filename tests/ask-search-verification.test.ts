@@ -13,6 +13,7 @@ import {
   InMemoryModelAdapter,
   createInMemoryModelAdapter,
 } from "@/lib/services/model-adapter";
+import { CatalogFilters } from "@/app/catalog/_components/catalog-filters";
 import {
   ArchiveSearchBar,
   clearCatalogSearchParams,
@@ -964,5 +965,105 @@ describe("ArchiveSearchBar Dual-Mode and Mode Toggle Contract", () => {
     expect(html).not.toContain('class="panel"');
   });
 });
+
+/**
+ * SOURCE OF TRUTH KEYWORDS: catalogFiltersContractTest, CatalogFilters, hiddenQueryPreservation, facetFilters, singleSearchInput, noDuplicateInput
+ * WHAT: Unit and contract tests verifying that CatalogFilters relies on a hidden query input and preserves secondary facets.
+ * WHY: Proves that the duplicate visible search input is removed, active search query is retained through hidden form parameter, and all secondary facets remain functional.
+ * WHERE: tests/ask-search-verification.test.ts (verifies Ticket 02).
+ */
+describe("CatalogFilters Contract and Query Preservation", () => {
+  const samplePublishers = [
+    "BCCNS",
+    "Nova Scotia Archives",
+    "Dalhousie University",
+  ];
+
+  it("renders a hidden input for q with active query value to preserve search across filter submissions", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(CatalogFilters, {
+        publishers: samplePublishers,
+        query: { q: "Africville Baptist Church", institution: "BCCNS" },
+      }),
+    );
+
+    // Form specifies action="/catalog"
+    expect(html).toContain('action="/catalog"');
+
+    // Hidden input preserves active keyword query
+    expect(html).toContain(
+      '<input type="hidden" name="q" value="Africville Baptist Church"',
+    );
+  });
+
+  it("defaults hidden q value to empty string when query.q is omitted", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(CatalogFilters, {
+        publishers: samplePublishers,
+        query: { institution: "BCCNS" },
+      }),
+    );
+
+    expect(html).toContain('<input type="hidden" name="q" value=""');
+  });
+
+  it("removes the duplicate visible text search input from the filter form", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(CatalogFilters, {
+        publishers: samplePublishers,
+        query: { q: "Africville" },
+      }),
+    );
+
+    // Visible search input and its label/placeholder are absent
+    expect(html).not.toContain("Search all sources");
+    expect(html).not.toContain(
+      "Search title, description, subject, place, or community",
+    );
+    // Only the hidden input has name="q", not a visible text input
+    expect(html).not.toContain('<input name="q"');
+  });
+
+  it("renders all secondary facet fields and submit button within the filter grid", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(CatalogFilters, {
+        publishers: samplePublishers,
+        query: {
+          q: "Africville",
+          institution: "BCCNS",
+          type: "document",
+          creator: "Addie States",
+          subject: "Church History",
+          place: "Halifax",
+          from: "1960",
+          to: "1970",
+        },
+      }),
+    );
+
+    // Secondary facet select fields
+    expect(html).toContain('name="institution"');
+    expect(html).toContain('<option value="BCCNS"');
+    expect(html).toContain('name="type"');
+    expect(html).toContain('<option value="document"');
+
+    // Secondary facet text inputs
+    expect(html).toContain('name="creator"');
+    expect(html).toContain('value="Addie States"');
+    expect(html).toContain('name="subject"');
+    expect(html).toContain('value="Church History"');
+    expect(html).toContain('name="place"');
+    expect(html).toContain('value="Halifax"');
+    expect(html).toContain('name="from"');
+    expect(html).toContain('value="1960-01-01"');
+    expect(html).toContain('name="to"');
+    expect(html).toContain('value="1970-12-31"');
+
+    // Submit button
+    expect(html).toContain('type="submit"');
+    expect(html).toContain("Search");
+  });
+});
+
 
 
