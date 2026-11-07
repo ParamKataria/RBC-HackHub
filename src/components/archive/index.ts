@@ -9,6 +9,7 @@ export {
   ArchiveSearchBar,
   clearCatalogSearchParams,
   filterHref,
+  handleRadioArrowNavigation,
   mergeCatalogSearchParams,
 } from "./archive-search-bar";
 export { ImmersiveArchiveHUD } from "./immersive-archive-hud";

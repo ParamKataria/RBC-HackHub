@@ -832,9 +832,7 @@ function seatRotundaArchFrame(
  * WHY: Gives both the Rotunda entrance arches and the End-of-Hallway arches the same finished walnut border.
  * WHERE: buildProceduralHallScene and buildMuseumRoomScene.
  */
-function createGreekArchwayMoldingGroup(
-  _accentColor?: number | string,
-): THREE.Group {
+function createGreekArchwayMoldingGroup(): THREE.Group {
   if (!cachedInnerArchBandGeom) {
     cachedInnerArchBandGeom = createArchBandGeometry(1.78, 1.798, 3.75, 0.42);
     applyWoodGrainUVs(cachedInnerArchBandGeom);
@@ -1088,7 +1086,7 @@ export function buildProceduralHallScene(
     portalAnchor.scale.set(1, 1, 1);
     root.add(portalAnchor);
 
-    const glowGroup = createGreekArchwayMoldingGroup(cfg.washHex);
+    const glowGroup = createGreekArchwayMoldingGroup();
     addArchOpeningEdge(glowGroup, cfg.washHex);
     seatRotundaArchFrame(glowGroup, wallRadius, 1.12, 0.28);
     glowGroup.name = cfg.glowNode;
@@ -1410,7 +1408,7 @@ export async function buildMuseumRoomScene({
   portal2Anchor.position.set(portalWallX - 0.02, 0, leftArchZ);
   root.add(portal2Anchor);
 
-  const portal1Glow = createGreekArchwayMoldingGroup(portalTheme.portal1Color);
+  const portal1Glow = createGreekArchwayMoldingGroup();
   addArchOpeningEdge(portal1Glow, portalTheme.portal1Color);
   portal1Glow.name = "portal_1_glow";
   portal1Glow.position.set(portalWallX - 0.42, 0, rightArchZ);
@@ -1419,7 +1417,7 @@ export async function buildMuseumRoomScene({
   portal1Glow.rotation.set(0, Math.PI, 0);
   root.add(portal1Glow);
 
-  const portal2Glow = createGreekArchwayMoldingGroup(portalTheme.portal2Color);
+  const portal2Glow = createGreekArchwayMoldingGroup();
   addArchOpeningEdge(portal2Glow, portalTheme.portal2Color);
   portal2Glow.name = "portal_2_glow";
   portal2Glow.position.set(portalWallX - 0.42, 0, leftArchZ);

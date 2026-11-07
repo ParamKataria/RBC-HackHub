@@ -12,9 +12,21 @@ import {
   type CatalogFiltersProps,
 } from "@/src/types";
 
+/**
+ * SOURCE OF TRUTH KEYWORDS: fieldClassName, filterInputStyle, roundedPillInput, themeBorderTokens, responsiveFilterField
+ * WHAT: Standard Tailwind utility classes applied across all filter form inputs and select elements.
+ * WHY: Enforces uniform styling, rounded pill geometry, theme color tokens, and reduced-motion compliance.
+ * WHERE: app/catalog/_components/catalog-filters.tsx.
+ */
 const fieldClassName =
   "flex h-10 w-full rounded-full border border-input bg-background px-4 text-sm text-foreground shadow-none transition-colors duration-150 hover:border-primary/60 focus-visible:border-primary motion-reduce:transition-none";
 
+/**
+ * SOURCE OF TRUTH KEYWORDS: secondaryFilterKeys, catalogFacetKeys, secondaryFilterField, filterExclusions, activeFilterList
+ * WHAT: Readonly tuple of catalog secondary facet parameter keys.
+ * WHY: Enumerates the facet fields that can be tallied for the active filter badge and reset independently from the keyword query.
+ * WHERE: app/catalog/_components/catalog-filters.tsx.
+ */
 const secondaryFilterKeys = [
   "institution",
   "type",
@@ -52,6 +64,31 @@ function buildClearFiltersHref(q?: string): string {
   return q && q.trim().length > 0
     ? `/catalog?q=${encodeURIComponent(q.trim())}`
     : "/catalog";
+}
+
+/**
+ * SOURCE OF TRUTH KEYWORDS: ClearFiltersLink, clearFiltersHref, resetFiltersButton, secondaryFilterReset, catalogFacetReset
+ * WHAT: Reusable action link resetting secondary facet filters while preserving the active keyword query q.
+ * WHY: De-duplicates the filter reset markup across the header bar and expanded panel footer.
+ * WHERE: app/catalog/_components/catalog-filters.tsx.
+ */
+function ClearFiltersLink({
+  href,
+  variant = "header",
+}: {
+  href: string;
+  variant?: "header" | "button";
+}) {
+  const linkClassName =
+    variant === "header"
+      ? "text-xs font-medium text-foreground/70 underline underline-offset-4 transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      : "inline-flex h-10 shrink-0 items-center justify-center rounded-full border border-border px-4 text-xs font-medium text-foreground/70 transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none";
+
+  return (
+    <Link href={href} className={linkClassName}>
+      Clear filters
+    </Link>
+  );
 }
 
 /**
@@ -107,119 +144,111 @@ export function CatalogFilters(rawProps: CatalogFiltersProps) {
         </button>
 
         {activeSecondaryCount > 0 && (
-          <Link
-            href={clearFiltersHref}
-            className="text-xs font-medium text-foreground/70 underline underline-offset-4 transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            Clear filters
-          </Link>
+          <ClearFiltersLink href={clearFiltersHref} variant="header" />
         )}
       </div>
 
-      {/* Collapsible Fields Panel */}
+      {/* Collapsible Fields Panel with Smooth Grid Accordion Transition */}
       <div
         id="catalog-filters-panel"
         hidden={!isOpen}
-        className={
-          isOpen
-            ? "mt-4 grid grid-cols-1 items-end gap-x-4 gap-y-4 border-t border-border/60 pt-4 sm:grid-cols-2 lg:grid-cols-6"
-            : "hidden"
-        }
+        className={`grid transition-[grid-template-rows] duration-200 ease-out motion-reduce:transition-none ${
+          isOpen ? "grid-rows-[1fr]" : "grid-rows-[0fr]"
+        }`}
       >
-        <label className="flex flex-col gap-1.5 text-sm text-foreground lg:col-span-3">
-          Institution
-          <select
-            name="institution"
-            defaultValue={query.institution ?? ""}
-            className={fieldClassName}
-          >
-            <option value="">All institutions</option>
-            {publishers.map((publisher) => (
-              <option key={publisher} value={publisher}>
-                {publisher}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="flex flex-col gap-1.5 text-sm text-foreground lg:col-span-3">
-          Type
-          <select
-            name="type"
-            defaultValue={query.type ?? ""}
-            className={fieldClassName}
-          >
-            <option value="">All types</option>
-            {recordTypeValues.map((type) => (
-              <option key={type} value={type}>
-                {type}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="flex flex-col gap-1.5 text-sm text-foreground lg:col-span-2">
-          Creator
-          <Input
-            name="creator"
-            defaultValue={query.creator ?? ""}
-            placeholder="Creator or contributor"
-            className={fieldClassName}
-          />
-        </label>
-        <label className="flex flex-col gap-1.5 text-sm text-foreground lg:col-span-2">
-          Subject
-          <Input
-            name="subject"
-            defaultValue={query.subject ?? ""}
-            placeholder="Subject"
-            className={fieldClassName}
-          />
-        </label>
-        <label className="flex flex-col gap-1.5 text-sm text-foreground lg:col-span-2">
-          Place
-          <Input
-            name="place"
-            defaultValue={query.place ?? ""}
-            placeholder="Place"
-            className={fieldClassName}
-          />
-        </label>
-        <label className="flex flex-col gap-1.5 text-sm text-foreground lg:col-span-2">
-          From
-          <Input
-            name="from"
-            type="text"
-            inputMode="numeric"
-            placeholder="YYYY or YYYY-MM-DD"
-            defaultValue={query.from ?? ""}
-            className={fieldClassName}
-          />
-        </label>
-        <label className="flex flex-col gap-1.5 text-sm text-foreground lg:col-span-2">
-          To
-          <Input
-            name="to"
-            type="text"
-            inputMode="numeric"
-            placeholder="YYYY or YYYY-MM-DD"
-            defaultValue={query.to ?? ""}
-            className={fieldClassName}
-          />
-        </label>
-        <div className="flex items-center gap-3 sm:col-span-2 lg:col-span-2">
-          <Button
-            type="submit"
-            className="h-10 w-full rounded-full shadow-none transition-colors duration-150 motion-reduce:transition-none"
-          >
-            Search
-          </Button>
-          {activeSecondaryCount > 0 && (
-            <Link
-              href={clearFiltersHref}
-              className="inline-flex h-10 shrink-0 items-center justify-center rounded-full border border-border px-4 text-xs font-medium text-foreground/70 transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
-            >
-              Clear filters
-            </Link>
-          )}
+        <div className="overflow-hidden">
+          <div className="mt-4 grid grid-cols-1 items-end gap-x-4 gap-y-4 border-t border-border/60 pt-4 sm:grid-cols-2 lg:grid-cols-6">
+            <label className="flex flex-col gap-1.5 text-sm text-foreground lg:col-span-3">
+              Institution
+              <select
+                name="institution"
+                defaultValue={query.institution ?? ""}
+                className={fieldClassName}
+              >
+                <option value="">All institutions</option>
+                {publishers.map((publisher) => (
+                  <option key={publisher} value={publisher}>
+                    {publisher}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="flex flex-col gap-1.5 text-sm text-foreground lg:col-span-3">
+              Type
+              <select
+                name="type"
+                defaultValue={query.type ?? ""}
+                className={fieldClassName}
+              >
+                <option value="">All types</option>
+                {recordTypeValues.map((type) => (
+                  <option key={type} value={type}>
+                    {type}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="flex flex-col gap-1.5 text-sm text-foreground lg:col-span-2">
+              Creator
+              <Input
+                name="creator"
+                defaultValue={query.creator ?? ""}
+                placeholder="Creator or contributor"
+                className={fieldClassName}
+              />
+            </label>
+            <label className="flex flex-col gap-1.5 text-sm text-foreground lg:col-span-2">
+              Subject
+              <Input
+                name="subject"
+                defaultValue={query.subject ?? ""}
+                placeholder="Subject"
+                className={fieldClassName}
+              />
+            </label>
+            <label className="flex flex-col gap-1.5 text-sm text-foreground lg:col-span-2">
+              Place
+              <Input
+                name="place"
+                defaultValue={query.place ?? ""}
+                placeholder="Place"
+                className={fieldClassName}
+              />
+            </label>
+            <label className="flex flex-col gap-1.5 text-sm text-foreground lg:col-span-2">
+              From
+              <Input
+                name="from"
+                type="text"
+                inputMode="numeric"
+                placeholder="YYYY or YYYY-MM-DD"
+                defaultValue={query.from ?? ""}
+                className={fieldClassName}
+              />
+            </label>
+            <label className="flex flex-col gap-1.5 text-sm text-foreground lg:col-span-2">
+              To
+              <Input
+                name="to"
+                type="text"
+                inputMode="numeric"
+                placeholder="YYYY or YYYY-MM-DD"
+                defaultValue={query.to ?? ""}
+                className={fieldClassName}
+              />
+            </label>
+            <div className="flex items-center gap-3 sm:col-span-2 lg:col-span-2">
+              <Button
+                type="submit"
+                className="h-10 w-full rounded-full shadow-none transition-colors duration-150 motion-reduce:transition-none"
+              >
+                Search
+              </Button>
+              {activeSecondaryCount > 0 && (
+                <ClearFiltersLink href={clearFiltersHref} variant="button" />
+              )}
+            </div>
+          </div>
         </div>
       </div>
     </form>

@@ -235,6 +235,16 @@ export const archiveGlanceSchema = z.object({
 export type ArchiveGlance = z.infer<typeof archiveGlanceSchema>;
 
 /**
+ * SOURCE OF TRUTH KEYWORDS: searchModeSchema, SearchMode, dualModeSearch, keywordSearch, aiInquiry
+ * WHAT: Validated search mode enum schema and TypeScript type distinguishing database keyword lookup from natural-language AI inquiries.
+ * WHY: Provides domain typing across components, query synchronization, and accessible mode toggle controls.
+ * WHERE: src/types/ask.ts, src/components/archive/archive-search-bar.tsx, and src/types/index.ts.
+ */
+export const searchModeSchema = z.enum(["keyword", "ai"]);
+
+export type SearchMode = z.infer<typeof searchModeSchema>;
+
+/**
  * SOURCE OF TRUTH KEYWORDS: archiveSearchBarPropsSchema, ArchiveSearchBarProps, enableModeToggle, defaultMode, currentFilters, searchBarConfig
  * WHAT: Validated props schema and TypeScript interface for ArchiveSearchBar including dual-mode search configuration.
  * WHY: Enforces type-safe configuration of navigation, CTA links, initial query hydration, callbacks, and keyword vs AI mode toggles.
@@ -248,7 +258,7 @@ export const archiveSearchBarPropsSchema = z.object({
   claimLimit: z.number().int().positive().optional(),
   className: z.string().optional(),
   enableModeToggle: z.boolean().optional(),
-  defaultMode: z.enum(["keyword", "ai"]).optional(),
+  defaultMode: searchModeSchema.optional(),
   currentFilters: searchQuerySchema.optional(),
 });
 

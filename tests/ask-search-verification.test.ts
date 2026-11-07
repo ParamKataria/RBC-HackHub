@@ -18,6 +18,7 @@ import {
   ArchiveSearchBar,
   clearCatalogSearchParams,
   filterHref,
+  handleRadioArrowNavigation,
   mergeCatalogSearchParams,
 } from "@/src/components/archive";
 import {
@@ -800,7 +801,7 @@ describe("ArchiveSearchBar Dual-Mode and Mode Toggle Contract", () => {
     // No radiogroup or CTA chip in legacy mode
     expect(legacyMarkup).not.toContain('role="radiogroup"');
     expect(legacyMarkup).not.toContain("Switch to Ask AI");
-    expect(legacyMarkup).toContain('placeholder="Ask the archive"');
+    expect(legacyMarkup).toContain('placeholder="Ask a question in plain language..."');
     expect(legacyMarkup).toContain('aria-label="Submit inquiry"');
 
     // When enableModeToggle is explicitly false
@@ -813,7 +814,7 @@ describe("ArchiveSearchBar Dual-Mode and Mode Toggle Contract", () => {
 
     expect(explicitFalseMarkup).not.toContain('role="radiogroup"');
     expect(explicitFalseMarkup).not.toContain("Switch to Ask AI");
-    expect(explicitFalseMarkup).toContain('placeholder="Ask the archive"');
+    expect(explicitFalseMarkup).toContain('placeholder="Ask a question in plain language..."');
   });
 
   it("renders accessible segmented radio toggle defaulting to keyword search mode when enableModeToggle is true", () => {
@@ -859,8 +860,8 @@ describe("ArchiveSearchBar Dual-Mode and Mode Toggle Contract", () => {
     const aiRadioMatch = /<button[^>]*aria-checked="true"[^>]*>[\s\S]*?Ask AI[\s\S]*?<\/button>/.test(html);
     expect(aiRadioMatch).toBe(true);
 
-    // Placeholder defaults to "Ask the archive"
-    expect(html).toContain('placeholder="Ask the archive"');
+    // Placeholder defaults to "Ask a question in plain language..."
+    expect(html).toContain('placeholder="Ask a question in plain language..."');
 
     // CTA chip is NOT rendered in AI mode
     expect(html).not.toContain("Looking for answers in plain language?");
@@ -891,7 +892,7 @@ describe("ArchiveSearchBar Dual-Mode and Mode Toggle Contract", () => {
       }),
     );
     expect(aiHtml).toContain(`value="${draftedText}"`);
-    expect(aiHtml).toContain('placeholder="Ask the archive"');
+    expect(aiHtml).toContain('placeholder="Ask a question in plain language..."');
   });
 
   it("ensures all mode toggle and CTA buttons specify type button to prevent unsolicited form submission", () => {
@@ -1211,7 +1212,7 @@ describe("Ticket 04: Comprehensive Verification and Accessibility Test Suite", (
       }),
     );
     expect(aiMarkup).toContain(`value="${draftedQuery}"`);
-    expect(aiMarkup).toContain('placeholder="Ask the archive"');
+    expect(aiMarkup).toContain('placeholder="Ask a question in plain language..."');
 
     // 3. Verifies zero network requests were triggered during mode rendering / switching
     expect(fetchSpy).not.toHaveBeenCalled();
@@ -1321,12 +1322,13 @@ describe("Ticket 04: Comprehensive Verification and Accessibility Test Suite", (
       }),
     );
 
-    // Starts collapsed by default
+    // Starts collapsed by default with smooth accordion grid-template-rows 0fr
     expect(html).toContain('aria-expanded="false"');
     expect(html).toContain('aria-controls="catalog-filters-panel"');
     expect(html).toContain('id="catalog-filters-panel"');
     expect(html).toContain('hidden=""');
-    expect(html).toContain('class="hidden"');
+    expect(html).toContain("grid-rows-[0fr]");
+    expect(html).toContain("transition-[grid-template-rows]");
     expect(html).toContain('aria-label="Filters"');
     expect(html).not.toContain('data-testid="catalog-filters-badge"');
   });
@@ -1481,7 +1483,7 @@ describe("Ticket 04: Comprehensive Verification and Accessibility Test Suite", (
     expect(legacyMarkup).not.toContain("Switch to Ask AI");
 
     // Standard legacy placeholder and accessible label
-    expect(legacyMarkup).toContain('placeholder="Ask the archive"');
+    expect(legacyMarkup).toContain('placeholder="Ask a question in plain language..."');
     expect(legacyMarkup).toContain('aria-label="Submit inquiry"');
 
     // Submit button remains type="submit"
@@ -1524,6 +1526,64 @@ describe("Ticket 04: Comprehensive Verification and Accessibility Test Suite", (
     // Ask AI option: unselected with roving tabIndex -1
     expect(html).toContain('aria-checked="false"');
     expect(html).toContain('tabindex="-1"');
+  });
+
+  it("inverts roving tabindex when operating in AI mode", () => {
+    const aiHtml = renderToStaticMarkup(
+      React.createElement(ArchiveSearchBar, {
+        enableModeToggle: true,
+        defaultMode: "ai",
+      }),
+    );
+    const radioMatches = aiHtml.match(/<button[^>]*role="radio"[^>]*>/g) ?? [];
+    expect(radioMatches).toHaveLength(2);
+    // Keyword button is unchecked with tabindex -1
+    expect(radioMatches[0]).toContain('aria-checked="false"');
+    expect(radioMatches[0]).toContain('tabindex="-1"');
+    // AI button is checked with tabindex 0
+    expect(radioMatches[1]).toContain('aria-checked="true"');
+    expect(radioMatches[1]).toContain('tabindex="0"');
+  });
+
+  it("navigates between modes and imperatively shifts focus to active radio button on arrow key events", () => {
+    const mockSwitchMode = vi.fn();
+    const mockFocusKeyword = vi.fn();
+    const mockFocusAi = vi.fn();
+
+    const callbacks = {
+      switchMode: mockSwitchMode,
+      focusKeyword: mockFocusKeyword,
+      focusAi: mockFocusAi,
+    };
+
+    // 1. ArrowRight navigates to AI mode and focuses AI button
+    const handledRight = handleRadioArrowNavigation("ArrowRight", callbacks);
+    expect(handledRight).toBe(true);
+    expect(mockSwitchMode).toHaveBeenCalledWith("ai");
+    expect(mockFocusAi).toHaveBeenCalledTimes(1);
+
+    // 2. ArrowDown also navigates to AI mode and focuses AI button
+    const handledDown = handleRadioArrowNavigation("ArrowDown", callbacks);
+    expect(handledDown).toBe(true);
+    expect(mockSwitchMode).toHaveBeenCalledWith("ai");
+    expect(mockFocusAi).toHaveBeenCalledTimes(2);
+
+    // 3. ArrowLeft navigates to Keyword mode and focuses Keyword button
+    const handledLeft = handleRadioArrowNavigation("ArrowLeft", callbacks);
+    expect(handledLeft).toBe(true);
+    expect(mockSwitchMode).toHaveBeenCalledWith("keyword");
+    expect(mockFocusKeyword).toHaveBeenCalledTimes(1);
+
+    // 4. ArrowUp also navigates to Keyword mode and focuses Keyword button
+    const handledUp = handleRadioArrowNavigation("ArrowUp", callbacks);
+    expect(handledUp).toBe(true);
+    expect(mockSwitchMode).toHaveBeenCalledWith("keyword");
+    expect(mockFocusKeyword).toHaveBeenCalledTimes(2);
+
+    // 5. Unrelated keys return false without shifting mode or focus
+    const handledTab = handleRadioArrowNavigation("Tab", callbacks);
+    expect(handledTab).toBe(false);
+    expect(mockSwitchMode).toHaveBeenCalledTimes(4);
   });
 
   it("verifies ARIA accessibility attributes on collapsible filter accordion toggle", () => {

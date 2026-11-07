@@ -82,6 +82,7 @@ export {
   recordBriefSchema,
   recordsInViewResultSchema,
   scoredEvidenceRecordSchema,
+  searchModeSchema,
   wallRecordSchema,
 } from "./ask";
 export type {
@@ -109,6 +110,7 @@ export type {
   RecordBrief,
   RecordsInViewResult,
   ScoredEvidenceRecord,
+  SearchMode,
   WallRecord,
 } from "./ask";
 
