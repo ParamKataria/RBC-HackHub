@@ -234,9 +234,14 @@ export const archiveGlanceSchema = z.object({
 
 export type ArchiveGlance = z.infer<typeof archiveGlanceSchema>;
 
+/**
+ * SOURCE OF TRUTH KEYWORDS: archiveSearchBarPropsSchema, ArchiveSearchBarProps, searchBarConfig, autoNavigate, showCatalogCta
+ * WHAT: Validated props schema and TypeScript interface for ArchiveSearchBar.
+ * WHY: Enforces type-safe configuration of navigation, CTA links, and callbacks across Homeview and Catalog.
+ * WHERE: src/types/ask.ts, src/components/archive/archive-search-bar.tsx.
+ */
 export const archiveSearchBarPropsSchema = z.object({
   autoNavigate: z.boolean().optional(),
-  persistStorage: z.boolean().optional(),
   showCatalogCta: z.boolean().optional(),
   placeholder: z.string().optional(),
   claimLimit: z.number().int().positive().optional(),

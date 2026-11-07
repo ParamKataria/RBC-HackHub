@@ -12,6 +12,7 @@ import {
   createInMemoryModelAdapter,
 } from "@/lib/services/model-adapter";
 import {
+  archiveSearchBarPropsSchema,
   askResponseSchema,
   noArchiveSourceMessage,
   noDirectAnswerMessage,
@@ -21,6 +22,7 @@ import {
   type ExtraIdValue,
   type LanguageModelPort,
 } from "@/src/types";
+import { filterHref } from "@/src/components/archive";
 
 describe("LanguageModelPort & InMemoryModelAdapter", () => {
   const sampleRecordId = "11111111-2222-3333-4444-555555555555";
@@ -373,3 +375,25 @@ describe("LanguageModelPort & InMemoryModelAdapter", () => {
     expect(adapter.getCalls()).toHaveLength(0);
   });
 });
+
+describe("ArchiveSearchBar and filterHref Contract", () => {
+  it("serializes search query filters cleanly to catalog URLs", () => {
+    expect(filterHref({ q: "Africville", place: "Nova Scotia" })).toBe(
+      "/catalog?q=Africville&place=Nova+Scotia",
+    );
+    expect(filterHref({})).toBe("/catalog");
+  });
+
+  it("proves archiveSearchBarPropsSchema has eliminated persistStorage", () => {
+    expect("persistStorage" in archiveSearchBarPropsSchema.shape).toBe(false);
+    const parsed = archiveSearchBarPropsSchema.parse({
+      autoNavigate: true,
+      showCatalogCta: true,
+      placeholder: "Custom prompt",
+    });
+    expect(parsed.autoNavigate).toBe(true);
+    expect(parsed.showCatalogCta).toBe(true);
+    expect((parsed as Record<string, unknown>).persistStorage).toBeUndefined();
+  });
+});
+

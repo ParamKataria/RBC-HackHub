@@ -5,6 +5,6 @@
  * WHERE: app/page.tsx, app/museum/page.tsx, and app/catalog.
  */
 export { BccnsArchiveExperience } from "./bccns-archive-experience";
-export { ArchiveSearchBar, filterHref, sameFilters } from "./archive-search-bar";
+export { ArchiveSearchBar, filterHref } from "./archive-search-bar";
 export { ImmersiveArchiveHUD } from "./immersive-archive-hud";
 
