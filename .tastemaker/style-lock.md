@@ -111,10 +111,13 @@ none
 - Illustration source used: none (all imagery is real archival content from holding institutions)
 - Logo: BCCNS wordmark (text-based, Cherry Brook Nova Scotia, est. 1983) in Cormorant Garamond serif
 
+## Arrival gate
+The first screen is a full-viewport hero cover over the rotunda (`100dvh`), not a modal and not a floating card. The wash is a deeper warm paper at 94% opacity with no backdrop blur, so the room still shows through and the type stays readable. Title, copy, and actions are centered in a readable measure and scale with the viewport. Header and dial chrome stay hidden until the archive view. Scene wheel, touch, drag, and pointer look stay locked on the arrival and ask views. Ask the archive slides to the ask view. Enter digital archive fades into the rotunda.
+
 ## Motion
 - Feel: quick and restrained — 3D scene transitions with fade cameras, no celebratory bounces
 - Curves: cubic-bezier(0.23, 1, 0.32, 1) for ease-out; no overshoot/bounce easing on UI state
-- Durations: press 150ms, panel 220ms, page/story 340ms (preloader), transition 280ms (rotunda return)
+- Durations: press 150ms, panel 220ms, page/story 340ms (preloader), transition 280ms (rotunda return), cover swap 780ms with the drawer curve because the cover travels the full viewport
 - Entrance duration/distance: 220ms, 12px rise for modal entrances
 - Screen tracks: 3D scene animation via requestAnimationFrame; UI overlays fade in/out; no scroll-reveal on marketing content (not applicable)
 - Frequency rules: hover tooltips delay ~800ms; focus tooltips 0ms; preloader runs once on arrival; no motion on static paper cards

@@ -23,6 +23,18 @@ export type CollectionKey = z.infer<typeof collectionKeySchema>;
 
 export type AppMode = "hall" | "museum";
 
+export const archiveGateViewValues = ["arrival", "ask", "archive"] as const;
+
+export const archiveGateViewSchema = z.enum(archiveGateViewValues);
+
+/**
+ * SOURCE OF TRUTH KEYWORDS: ArchiveGateView, arrival view, ask view, archive view
+ * WHAT: The three surfaces the landing gate can show.
+ * WHY: Buttons move between views. The rotunda stays locked until the archive view.
+ * WHERE: BccnsArchiveExperience landing gate.
+ */
+export type ArchiveGateView = z.infer<typeof archiveGateViewSchema>;
+
 export interface PortalConfig {
   id: number;
   portalNode: string;

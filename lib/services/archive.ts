@@ -471,7 +471,7 @@ export async function getArchivePayload(): Promise<ArchivePayload> {
       established: "1983",
       societyIncorporated: "1977",
       mandate:
-        "To protect, preserve, and promote the history and culture of African Nova Scotians — Canada’s oldest Black communities.",
+        "To protect, preserve, and promote the history and culture of African Nova Scotians, Canada\u2019s oldest Black communities.",
     },
     collections,
     liveDatabaseConnected,
