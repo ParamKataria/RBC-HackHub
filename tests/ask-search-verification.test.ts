@@ -18,6 +18,7 @@ import {
   type AskClaim,
   type AskModelClaim,
   type CatalogRecord,
+  type ExtraIdValue,
   type LanguageModelPort,
 } from "@/src/types";
 
@@ -292,5 +293,83 @@ describe("LanguageModelPort & InMemoryModelAdapter", () => {
     const parsedLegacy = askResponseSchema.parse(legacyPayload);
     expect(parsedLegacy.claims).toEqual([]);
     expect(parsedLegacy.summary).toBe(noArchiveSourceMessage);
+  });
+
+  it("prioritizes ambient museum exhibit stations in evidence grounding via extraIds", () => {
+    const stationRecordId = "station-caribbean-diaspora-01";
+    const extraIds: Map<string, ExtraIdValue> = new Map([
+      [
+        stationRecordId,
+        {
+          id: stationRecordId,
+          title: "Caribbean Diaspora in Nova Scotia",
+          description: "Exhibit station depicting Caribbean migration patterns.",
+          dateText: "20th Century",
+          place: "Nova Scotia",
+          subjects: ["Migration", "Caribbean Diaspora"],
+          collectionKey: "caribbean_migrants",
+        },
+      ],
+    ]);
+
+    const claimsCitingStation: AskModelClaim[] = [
+      {
+        text: "The museum gallery exhibit highlights community migration patterns from the Caribbean.",
+        recordIds: [stationRecordId],
+      },
+      {
+        text: "Both catalog documents and the gallery station depict historic migration routes.",
+        recordIds: [sampleRecordId, stationRecordId],
+      },
+      {
+        text: "Claim referencing unknown station ID.",
+        recordIds: ["station-nonexistent-99"],
+      },
+    ];
+
+    const grounded = groundClaims(
+      claimsCitingStation,
+      [sampleCatalogRecord],
+      extraIds,
+    );
+
+    // Two valid claims survive: single station and dual citation
+    expect(grounded).toHaveLength(2);
+    expect(grounded[0].citedRecordIds).toEqual([stationRecordId]);
+    expect(grounded[1].citedRecordIds).toEqual([sampleRecordId, stationRecordId]);
+  });
+
+  it("handles zero-match inquiry fallback by avoiding model calls and returning canonical notice", async () => {
+    const adapter = new InMemoryModelAdapter();
+
+    // Zero retrieved candidate records and zero ambient view stations
+    const zeroCandidates: CatalogRecord[] = [];
+    const zeroExtraIds = new Map();
+
+    // Verify groundClaims produces no claims on empty candidate set
+    const grounded = groundClaims(
+      [{ text: "Drafted text", recordIds: [sampleRecordId] }],
+      zeroCandidates,
+      zeroExtraIds,
+    );
+    expect(grounded).toHaveLength(0);
+
+    // Verify zero-match inquiry returns canonical notice immediately without model invocation
+    const zeroMatchResponse = askResponseSchema.parse({
+      question: "Unmatched historical event in archives?",
+      filters: { q: "unmatched", publisher: "", page: 1 },
+      count: 0,
+      claims: [{ text: noArchiveSourceMessage, citedRecordIds: [] }],
+      summary: noArchiveSourceMessage,
+      citations: [],
+    });
+
+    expect(zeroMatchResponse.count).toBe(0);
+    expect(zeroMatchResponse.claims).toHaveLength(1);
+    expect(zeroMatchResponse.claims[0].text).toBe(noArchiveSourceMessage);
+    expect(zeroMatchResponse.citations).toHaveLength(0);
+
+    // Verify adapter was never invoked
+    expect(adapter.getCalls()).toHaveLength(0);
   });
 });
