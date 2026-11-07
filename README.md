@@ -2,6 +2,7 @@
 
 > An immersive, AI-grounded discovery catalog unifying African Nova Scotian historical records from Nova Scotia Archives, Library and Archives Canada, the Black Cultural Centre for Nova Scotia (BCCNS), The Canadian Encyclopedia, and the Black Loyalist Heritage Centre.
 
+### [Deployment Link 🔗](https://rbc-hack-hub.vercel.app)
 [![Next.js](https://img.shields.io/badge/Next.js-15_(App_Router)-black?logo=nextdotjs)](https://nextjs.org/)
 [![React](https://img.shields.io/badge/React-19-blue?logo=react)](https://react.dev/)
 [![Three.js](https://img.shields.io/badge/Three.js-3D_WebGL-orange?logo=three.js)](https://threejs.org/)
