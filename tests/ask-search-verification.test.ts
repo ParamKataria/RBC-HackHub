@@ -20,6 +20,7 @@ import {
   ArchiveSearchBar,
   clearCatalogSearchParams,
   filterHref,
+  handleModeSwitch,
   handleRadioArrowNavigation,
   mergeCatalogSearchParams,
 } from "@/src/components/archive";
@@ -1746,6 +1747,185 @@ describe("Catalog Navigation Bar and Header Polish", () => {
     );
   });
 });
+
+/**
+ * SOURCE OF TRUTH KEYWORDS: integratedFilterPillContractTest, ArchiveSearchBar, enableFilterPill, filterPanelOpen, activeFilterCount, onToggleFilterPanel
+ * WHAT: Unit and accessibility tests for ArchiveSearchBar integrated filter pill button and AI mode suppression.
+ * WHY: Verifies Ticket 02 acceptance criteria: accessible pill button in keyword mode, FiFilter icon, count badge, and suppression in AI mode.
+ * WHERE: tests/ask-search-verification.test.ts (verifies Ticket 02).
+ */
+describe("ArchiveSearchBar Integrated Filter Pill Contract (Ticket 02)", () => {
+  it("validates archiveSearchBarPropsSchema with enableFilterPill, filterPanelOpen, and activeFilterCount", () => {
+    const validConfig = {
+      enableFilterPill: true,
+      filterPanelOpen: true,
+      activeFilterCount: 2,
+    };
+
+    const parsed = archiveSearchBarPropsSchema.parse(validConfig);
+    expect(parsed.enableFilterPill).toBe(true);
+    expect(parsed.filterPanelOpen).toBe(true);
+    expect(parsed.activeFilterCount).toBe(2);
+
+    // Rejects negative activeFilterCount
+    const negativeCount = archiveSearchBarPropsSchema.safeParse({
+      enableFilterPill: true,
+      activeFilterCount: -1,
+    });
+    expect(negativeCount.success).toBe(false);
+
+    // Rejects non-integer activeFilterCount
+    const floatCount = archiveSearchBarPropsSchema.safeParse({
+      enableFilterPill: true,
+      activeFilterCount: 1.5,
+    });
+    expect(floatCount.success).toBe(false);
+  });
+
+  it("renders backward-compatible DOM without filter pill button when enableFilterPill is omitted or false", () => {
+    const htmlOmitted = renderToStaticMarkup(
+      React.createElement(ArchiveSearchBar, {
+        enableModeToggle: true,
+        defaultMode: "keyword",
+      }),
+    );
+    expect(htmlOmitted).not.toContain('aria-controls="catalog-filters-panel"');
+    expect(htmlOmitted).not.toContain("search-bar-filter-badge");
+    expect(htmlOmitted).not.toContain("<span>Filters</span>");
+
+    const htmlFalse = renderToStaticMarkup(
+      React.createElement(ArchiveSearchBar, {
+        enableModeToggle: true,
+        defaultMode: "keyword",
+        enableFilterPill: false,
+      }),
+    );
+    expect(htmlFalse).not.toContain('aria-controls="catalog-filters-panel"');
+    expect(htmlFalse).not.toContain("search-bar-filter-badge");
+    expect(htmlFalse).not.toContain("<span>Filters</span>");
+  });
+
+  it("renders accessible filter pill button with FiFilter icon in keyword mode when enableFilterPill is true", () => {
+    const onToggleMock = vi.fn();
+    const html = renderToStaticMarkup(
+      React.createElement(ArchiveSearchBar, {
+        enableModeToggle: true,
+        defaultMode: "keyword",
+        enableFilterPill: true,
+        filterPanelOpen: false,
+        onToggleFilterPanel: onToggleMock,
+      }),
+    );
+
+    // Filter pill button structure and accessibility
+    expect(html).toContain('aria-controls="catalog-filters-panel"');
+    expect(html).toContain('aria-expanded="false"');
+    expect(html).toContain('aria-label="Filters"');
+    expect(html).toContain('type="button"');
+    expect(html).toContain("<span>Filters</span>");
+    expect(html).not.toContain("search-bar-filter-badge");
+
+    // FiFilter SVG icon exists inside pill button
+    const filterPillMatch = html.match(
+      /<button[^>]*aria-controls="catalog-filters-panel"[^>]*>[\s\S]*?<\/button>/,
+    );
+    expect(filterPillMatch).not.toBeNull();
+    expect(filterPillMatch![0]).toContain("<svg");
+  });
+
+  it("displays active filter count badge and expanded state when secondary filters exist", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(ArchiveSearchBar, {
+        enableModeToggle: true,
+        defaultMode: "keyword",
+        enableFilterPill: true,
+        filterPanelOpen: true,
+        activeFilterCount: 3,
+      }),
+    );
+
+    expect(html).toContain('aria-expanded="true"');
+    expect(html).toContain('aria-label="Filters (3 active)"');
+    expect(html).toContain('data-testid="search-bar-filter-badge"');
+    expect(html).toContain("(3)");
+  });
+
+  it("omits the filter pill button completely when in AI mode", () => {
+    const htmlAi = renderToStaticMarkup(
+      React.createElement(ArchiveSearchBar, {
+        enableModeToggle: true,
+        defaultMode: "ai",
+        enableFilterPill: true,
+        filterPanelOpen: true,
+        activeFilterCount: 2,
+      }),
+    );
+
+    expect(htmlAi).not.toContain('aria-controls="catalog-filters-panel"');
+    expect(htmlAi).not.toContain("search-bar-filter-badge");
+    expect(htmlAi).not.toContain("<span>Filters</span>");
+  });
+
+  it("automatically triggers onToggleFilterPanel when switching from keyword mode to AI mode with open filter panel", () => {
+    const onToggleMock = vi.fn();
+    const clearAiMock = vi.fn();
+
+    const handled = handleModeSwitch("keyword", "ai", {
+      filterPanelOpen: true,
+      onToggleFilterPanel: onToggleMock,
+      clearAiResults: clearAiMock,
+    });
+
+    expect(handled).toBe(true);
+    expect(onToggleMock).toHaveBeenCalledTimes(1);
+    expect(clearAiMock).not.toHaveBeenCalled();
+  });
+
+  it("does not trigger onToggleFilterPanel when switching to AI mode if filter panel was already closed", () => {
+    const onToggleMock = vi.fn();
+    const clearAiMock = vi.fn();
+
+    const handled = handleModeSwitch("keyword", "ai", {
+      filterPanelOpen: false,
+      onToggleFilterPanel: onToggleMock,
+      clearAiResults: clearAiMock,
+    });
+
+    expect(handled).toBe(true);
+    expect(onToggleMock).not.toHaveBeenCalled();
+  });
+
+  it("clears AI results and ignores filter panel toggle when switching back from AI mode to keyword mode", () => {
+    const onToggleMock = vi.fn();
+    const clearAiMock = vi.fn();
+
+    const handled = handleModeSwitch("ai", "keyword", {
+      filterPanelOpen: true,
+      onToggleFilterPanel: onToggleMock,
+      clearAiResults: clearAiMock,
+    });
+
+    expect(handled).toBe(true);
+    expect(clearAiMock).toHaveBeenCalledTimes(1);
+    expect(onToggleMock).not.toHaveBeenCalled();
+  });
+
+  it("ignores no-op mode switch when target mode matches current mode", () => {
+    const onToggleMock = vi.fn();
+    const clearAiMock = vi.fn();
+
+    const handled = handleModeSwitch("keyword", "keyword", {
+      filterPanelOpen: true,
+      onToggleFilterPanel: onToggleMock,
+      clearAiResults: clearAiMock,
+    });
+
+    expect(handled).toBe(false);
+    expect(onToggleMock).not.toHaveBeenCalled();
+    expect(clearAiMock).not.toHaveBeenCalled();
+  });
+});
+
 
 
 

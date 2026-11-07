@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type FormEvent } from "react";
+import { FiFilter } from "react-icons/fi";
 
 import { ArchiveAnswer, requestArchiveAnswer } from "@/src/components/archive/archive-answer";
 import styles from "@/src/components/archive/archive-search-bar.module.css";
@@ -105,9 +106,37 @@ export function handleRadioArrowNavigation(
 }
 
 /**
- * SOURCE OF TRUTH KEYWORDS: ArchiveSearchBar, ArchiveSearchBarProps, enableModeToggle, defaultMode, dualModeSearch, keywordVsAi
- * WHAT: Global reusable search bar supporting dual-mode database keyword search and natural-language AI archival inquiries.
- * WHY: Unifies keyword catalog exploration and AI claim synthesis with query retention, URL synchronization, and accessible mode switching.
+ * SOURCE OF TRUTH KEYWORDS: handleModeSwitch, SearchMode, dualModeSearch, modeToggle, filterPanelCollapse, aiModeSuppression
+ * WHAT: Determines search mode transitions, dismissing AI results when switching to keyword mode and auto-collapsing open filter panels when switching to AI mode.
+ * WHY: Provides a deterministic, testable seam that ensures Ticket 02 mode-switching contracts are maintained without UI side-effects.
+ * WHERE: ArchiveSearchBar switchMode callback and ask-search-verification tests.
+ */
+export function handleModeSwitch(
+  currentMode: SearchMode,
+  newMode: SearchMode,
+  options: {
+    filterPanelOpen?: boolean;
+    onToggleFilterPanel?: () => void;
+    clearAiResults?: () => void;
+  },
+): boolean {
+  if (newMode === currentMode) {
+    return false;
+  }
+  if (newMode === "keyword") {
+    options.clearAiResults?.();
+  } else if (newMode === "ai") {
+    if (options.filterPanelOpen) {
+      options.onToggleFilterPanel?.();
+    }
+  }
+  return true;
+}
+
+/**
+ * SOURCE OF TRUTH KEYWORDS: ArchiveSearchBar, ArchiveSearchBarProps, enableFilterPill, filterPanelOpen, activeFilterCount, dualModeSearch
+ * WHAT: Global reusable search bar supporting dual-mode database keyword search, integrated filter pill, and natural-language AI archival inquiries.
+ * WHY: Unifies keyword catalog exploration and AI claim synthesis with query retention, URL synchronization, and accessible mode and filter toggles.
  * WHERE: Rendered on the /catalog route and the Home page arrival gate screen.
  */
 export function ArchiveSearchBar({
@@ -120,6 +149,10 @@ export function ArchiveSearchBar({
   enableModeToggle = false,
   defaultMode,
   currentFilters,
+  enableFilterPill = false,
+  filterPanelOpen = false,
+  activeFilterCount,
+  onToggleFilterPanel,
   onAnswer,
   onClear,
 }: ArchiveSearchBarProps) {
@@ -152,13 +185,16 @@ export function ArchiveSearchBar({
    * WHERE: ArchiveSearchBar mode toggle click and CTA prompt activation.
    */
   const switchMode = (newMode: SearchMode) => {
-    if (newMode === mode) {
-      return;
-    }
-    setMode(newMode);
-    if (newMode === "keyword") {
-      setResult(null);
-      setError(null);
+    const switched = handleModeSwitch(mode, newMode, {
+      filterPanelOpen,
+      onToggleFilterPanel,
+      clearAiResults: () => {
+        setResult(null);
+        setError(null);
+      },
+    });
+    if (switched) {
+      setMode(newMode);
     }
   };
 
@@ -276,6 +312,98 @@ export function ArchiveSearchBar({
     ? `${styles.container} ${className}`
     : styles.container;
 
+  const searchInputBlock = (
+    <div
+      className={styles.ask}
+      role={open ? "region" : undefined}
+      aria-label={open ? "Archive answer" : undefined}
+    >
+      <form
+        className={`${styles.form}${pending ? ` ${styles.pending}` : ""}`}
+        onSubmit={onSubmit}
+      >
+        <button
+          type="submit"
+          className={styles.submitButton}
+          aria-label={
+            enableModeToggle && isKeyword
+              ? "Search catalog"
+              : "Submit inquiry"
+          }
+          disabled={pending}
+        >
+          <svg
+            className={styles.icon}
+            viewBox="0 0 24 24"
+            aria-hidden="true"
+          >
+            <circle
+              cx="10.5"
+              cy="10.5"
+              r="6.25"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.75"
+            />
+            <path
+              d="M15.2 15.2 L20 20"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.75"
+              strokeLinecap="round"
+            />
+          </svg>
+        </button>
+        <input
+          className={styles.input}
+          type="search"
+          placeholder={activePlaceholder}
+          aria-label={activePlaceholder}
+          autoComplete="off"
+          value={question}
+          onChange={(event) => setQuestion(event.target.value)}
+        />
+        {open && !pending ? (
+          <button
+            type="button"
+            className={styles.dismiss}
+            aria-label="Close answer"
+            onClick={clearAnswer}
+          >
+            Close
+          </button>
+        ) : null}
+        <span className={styles.wave} aria-hidden="true">
+          <i />
+          <i />
+          <i />
+          <i />
+          <i />
+        </span>
+      </form>
+      {open ? (
+        <div className={styles.panel}>
+          {error ? <p className={styles.error}>{error}</p> : null}
+          {result ? (
+            <>
+              <ArchiveAnswer result={result} claimLimit={claimLimit} />
+              {showCatalogCta ? (
+                <div className={styles.ctaRow}>
+                  <Link
+                    href={filterHref(result.filters)}
+                    className={styles.ctaButton}
+                  >
+                    Explore matching records in Catalog &rarr;
+                  </Link>
+                </div>
+              ) : null}
+            </>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
+
   return (
     <div className={rootClass}>
       {enableModeToggle && (
@@ -311,95 +439,29 @@ export function ArchiveSearchBar({
         </div>
       )}
 
-      <div
-        className={styles.ask}
-        role={open ? "region" : undefined}
-        aria-label={open ? "Archive answer" : undefined}
-      >
-        <form
-          className={`${styles.form}${pending ? ` ${styles.pending}` : ""}`}
-          onSubmit={onSubmit}
-        >
+      {enableFilterPill && isKeyword ? (
+        <div className={styles.searchRow}>
+          {searchInputBlock}
           <button
-            type="submit"
-            className={styles.submitButton}
-            aria-label={
-              enableModeToggle && isKeyword
-                ? "Search catalog"
-                : "Submit inquiry"
-            }
-            disabled={pending}
+            type="button"
+            className={styles.filterPill}
+            aria-expanded={filterPanelOpen ?? false}
+            aria-controls="catalog-filters-panel"
+            aria-label={`Filters${activeFilterCount && activeFilterCount > 0 ? ` (${activeFilterCount} active)` : ""}`}
+            onClick={onToggleFilterPanel}
           >
-            <svg
-              className={styles.icon}
-              viewBox="0 0 24 24"
-              aria-hidden="true"
-            >
-              <circle
-                cx="10.5"
-                cy="10.5"
-                r="6.25"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.75"
-              />
-              <path
-                d="M15.2 15.2 L20 20"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.75"
-                strokeLinecap="round"
-              />
-            </svg>
-          </button>
-          <input
-            className={styles.input}
-            type="search"
-            placeholder={activePlaceholder}
-            aria-label={activePlaceholder}
-            autoComplete="off"
-            value={question}
-            onChange={(event) => setQuestion(event.target.value)}
-          />
-          {open && !pending ? (
-            <button
-              type="button"
-              className={styles.dismiss}
-              aria-label="Close answer"
-              onClick={clearAnswer}
-            >
-              Close
-            </button>
-          ) : null}
-          <span className={styles.wave} aria-hidden="true">
-            <i />
-            <i />
-            <i />
-            <i />
-            <i />
-          </span>
-        </form>
-        {open ? (
-          <div className={styles.panel}>
-            {error ? <p className={styles.error}>{error}</p> : null}
-            {result ? (
-              <>
-                <ArchiveAnswer result={result} claimLimit={claimLimit} />
-                {showCatalogCta ? (
-                  <div className={styles.ctaRow}>
-                    <Link
-                      href={filterHref(result.filters)}
-                      className={styles.ctaButton}
-                    >
-                      Explore matching records in Catalog &rarr;
-                    </Link>
-                  </div>
-                ) : null}
-              </>
+            <FiFilter className={styles.filterIcon} aria-hidden="true" />
+            <span>Filters</span>
+            {activeFilterCount && activeFilterCount > 0 ? (
+              <span className={styles.filterBadge} data-testid="search-bar-filter-badge">
+                ({activeFilterCount})
+              </span>
             ) : null}
-          </div>
-        ) : null}
-      </div>
+          </button>
+        </div>
+      ) : (
+        searchInputBlock
+      )}
 
       {enableModeToggle && isKeyword ? (
         <div className={styles.modeCta}>

@@ -245,9 +245,9 @@ export const searchModeSchema = z.enum(["keyword", "ai"]);
 export type SearchMode = z.infer<typeof searchModeSchema>;
 
 /**
- * SOURCE OF TRUTH KEYWORDS: archiveSearchBarPropsSchema, ArchiveSearchBarProps, enableModeToggle, defaultMode, currentFilters, searchBarConfig
- * WHAT: Validated props schema and TypeScript interface for ArchiveSearchBar including dual-mode search configuration.
- * WHY: Enforces type-safe configuration of navigation, CTA links, initial query hydration, callbacks, and keyword vs AI mode toggles.
+ * SOURCE OF TRUTH KEYWORDS: archiveSearchBarPropsSchema, ArchiveSearchBarProps, enableFilterPill, filterPanelOpen, activeFilterCount, onToggleFilterPanel
+ * WHAT: Validated props schema and TypeScript interface for ArchiveSearchBar including dual-mode search configuration and filter pill integration.
+ * WHY: Enforces type-safe configuration of navigation, CTA links, initial query hydration, callbacks, keyword vs AI mode toggles, and inline filter pill state.
  * WHERE: src/types/ask.ts, src/components/archive/archive-search-bar.tsx.
  */
 export const archiveSearchBarPropsSchema = z.object({
@@ -260,11 +260,15 @@ export const archiveSearchBarPropsSchema = z.object({
   enableModeToggle: z.boolean().optional(),
   defaultMode: searchModeSchema.optional(),
   currentFilters: searchQuerySchema.optional(),
+  enableFilterPill: z.boolean().optional(),
+  filterPanelOpen: z.boolean().optional(),
+  activeFilterCount: z.number().int().nonnegative().optional(),
 });
 
 export type ArchiveSearchBarProps = z.infer<typeof archiveSearchBarPropsSchema> & {
   onAnswer?: (answer: AskResponse) => void;
   onClear?: () => void;
+  onToggleFilterPanel?: () => void;
 };
 
 export const immersiveArchiveHUDPropsSchema = z.object({

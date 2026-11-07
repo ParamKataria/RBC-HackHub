@@ -317,6 +317,92 @@
   text-underline-offset: 3px;
 }
 
+.searchRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+}
+
+.searchRow .ask {
+  flex: 1;
+  min-width: 0;
+}
+
+.filterPill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 44px;
+  height: 64px;
+  padding: 0 20px;
+  border-radius: 999px;
+  border: 1px solid hsl(var(--border));
+  background: hsl(var(--card));
+  color: hsl(var(--foreground));
+  font-family: inherit;
+  font-size: 0.9375rem;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  box-shadow: var(--shadow-sm, 0 1px 2px hsl(var(--foreground) / 0.04));
+  transition:
+    background-color 160ms ease,
+    border-color 160ms ease,
+    color 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.filterPill:hover {
+  background: hsl(var(--secondary));
+  border-color: hsl(var(--primary));
+  color: hsl(var(--foreground));
+}
+
+.filterPill:focus {
+  outline: none;
+}
+
+.filterPill:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+}
+
+.filterPill[aria-expanded="true"] {
+  background: hsl(var(--secondary));
+  border-color: hsl(var(--primary));
+  font-weight: 600;
+}
+
+.filterIcon {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  color: hsl(var(--primary));
+}
+
+.filterBadge {
+  display: inline-flex;
+  align-items: center;
+  font-weight: 600;
+  color: hsl(var(--primary));
+}
+
+@media (max-width: 640px) {
+  .searchRow {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .filterPill {
+    height: 48px;
+    padding: 0 16px;
+    font-size: 0.875rem;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .ask,
   .wave,
@@ -325,7 +411,8 @@
   .submitButton,
   .icon,
   .modeButton,
-  .ctaPrompt {
+  .ctaPrompt,
+  .filterPill {
     transition: none;
   }
 
