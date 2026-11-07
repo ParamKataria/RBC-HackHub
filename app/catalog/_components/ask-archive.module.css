@@ -20,11 +20,75 @@
 }
 
 .form {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 14px;
   min-height: 64px;
   padding: 0 24px;
+}
+
+.pending .input {
+  padding-right: 36px;
+}
+
+.wave {
+  position: absolute;
+  right: 24px;
+  top: 50%;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  width: 0;
+  height: 16px;
+  margin-top: -8px;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    width 0.35s cubic-bezier(0.32, 0.72, 0, 1),
+    opacity 0.25s ease;
+}
+
+.pending .wave {
+  width: 22px;
+  opacity: 1;
+}
+
+.wave i {
+  display: block;
+  width: 2px;
+  height: 6px;
+  border-radius: 999px;
+  background: hsl(var(--primary));
+  transform-origin: center;
+  animation: catalogAskWave 0.9s ease-in-out infinite;
+}
+
+.wave i:nth-child(2) {
+  animation-delay: 0.12s;
+}
+
+.wave i:nth-child(3) {
+  animation-delay: 0.24s;
+}
+
+.wave i:nth-child(4) {
+  animation-delay: 0.36s;
+}
+
+.wave i:nth-child(5) {
+  animation-delay: 0.48s;
+}
+
+@keyframes catalogAskWave {
+  0%,
+  100% {
+    transform: scaleY(0.55);
+  }
+  50% {
+    transform: scaleY(2.1);
+  }
 }
 
 .icon {
@@ -62,18 +126,14 @@
   color: hsl(var(--muted-foreground));
 }
 
-.dismiss,
-.status {
+.dismiss {
   flex: none;
   border: 0;
+  border-radius: 999px;
   background: transparent;
   color: hsl(var(--muted-foreground));
   font-size: 0.875rem;
-}
-
-.dismiss {
   cursor: pointer;
-  border-radius: 999px;
   padding: 6px 12px;
   transition: background-color 160ms ease, color 160ms ease;
 }
@@ -90,56 +150,22 @@
   padding: 16px 24px 20px;
 }
 
-.answer p {
+.error {
   margin: 0;
   font-family: var(--font-bccns-serif), Georgia, serif;
   font-size: 1.125rem;
   line-height: 1.45;
-}
-
-.answer p + p {
-  margin-top: 10px;
-}
-
-.answer a,
-.sources a {
-  color: hsl(var(--primary));
-  text-underline-offset: 3px;
-}
-
-.answer a {
-  text-decoration: underline;
-}
-
-.sources {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin: 14px 0 0;
-  padding: 0;
-  list-style: none;
-}
-
-.sources a {
-  display: inline-block;
-  width: fit-content;
-  max-width: 100%;
-  border-radius: 999px;
-  padding: 6px 12px;
-  text-decoration: none;
-  transition: background-color 160ms ease;
-}
-
-@media (hover: hover) and (pointer: fine) {
-  .sources a:hover {
-    background: hsl(var(--secondary));
-  }
+  color: hsl(var(--foreground));
 }
 
 @media (prefers-reduced-motion: reduce) {
   .ask,
-  .dismiss,
-  .sources a {
+  .wave,
+  .dismiss {
     transition: none;
+  }
+
+  .wave i {
+    animation: none;
   }
 }
