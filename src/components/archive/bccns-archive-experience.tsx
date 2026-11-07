@@ -182,7 +182,7 @@ function coastStationX(
  *       plus all shader controller resources tracked in the engine state. Shared hall textures
  *       (noise, platform, floor, rotunda preview, collection previews) are preserved because they
  *       are reused across scene transitions.
- * WHY: st.scene.remove(root) only detaches objects from the scene graph — it does NOT free WebGL
+ * WHY: st.scene.remove(root) only detaches objects from the scene graph. It does NOT free WebGL
  *      GPU memory. Without explicit disposal, every rotunda↔gallery transition leaks textures,
  *      materials, and geometries, eventually crashing the tab on low-end devices.
  * WHERE: Called in mountRotundaScene, transitionToCollectionRoom, and the component unmount cleanup.
@@ -321,7 +321,7 @@ function disposeEngineResources(st: {
   }
   st.roomFaderController = null;
 
-  // Floor reflectors (WebGLRenderTarget — must be disposed to avoid GPU memory leaks)
+  // Floor reflectors (WebGLRenderTarget: must be disposed to avoid GPU memory leaks)
   if (!st.floorReflectors) st.floorReflectors = [];
   st.floorReflectors.forEach((r) => {
     const target = r.getRenderTarget();
@@ -335,7 +335,7 @@ function disposeEngineResources(st: {
   });
   st.floorReflectors = [];
 
-  // Light controllers (PointLights — no GPU buffers to free, just clear refs)
+  // Light controllers (PointLights: no GPU buffers to free, just clear refs)
   st.lightControllers = [];
 
   // Clear mesh reference arrays (meshes already disposed via scene traversal or above)
@@ -1928,7 +1928,7 @@ export function BccnsArchiveExperience({
     const url = new URL(window.location.href);
     url.searchParams.set("collection", activeCollection.key);
     url.searchParams.set("record", selectedRecordModal.station.id);
-    const citationWithUrl = `${selectedRecordModal.station.citation} — Archive link: ${url.toString()}`;
+    const citationWithUrl = `${selectedRecordModal.station.citation}. Archive link: ${url.toString()}`;
     try {
       await navigator.clipboard.writeText(citationWithUrl);
     } catch {
@@ -1979,7 +1979,7 @@ export function BccnsArchiveExperience({
         aria-hidden="true"
       />
 
-      {/* Top Chrome — type only, sitting on the scene */}
+      {/* Top Chrome: type only, sitting on the scene */}
       <header className="bccns-top-chrome">
         <WordmarkTag className="bccns-wordmark">
           <button
@@ -2529,7 +2529,7 @@ export function BccnsArchiveExperience({
             The Black Cultural Centre for Nova Scotia in Cherry Brook was
             established in 1983 by the Black Cultural Society of Nova Scotia
             (incorporated 1977). Its mandate is to protect, preserve, and
-            promote the history and culture of African Nova Scotians — Canada’s
+            promote the history and culture of African Nova Scotians, Canada’s
             oldest Black communities.
           </p>
           <p className="bccns-card-body">
@@ -2780,7 +2780,7 @@ export function BccnsArchiveExperience({
           ))}
         </div>
         <div className="bccns-small-caps-label">
-          PREPARING GALLERY — {preloader.percent}%
+          PREPARING GALLERY: {preloader.percent}%
         </div>
       </div>
       </div>
@@ -2798,120 +2798,143 @@ export function BccnsArchiveExperience({
           {gateView === "arrival" ? (
           <section
             ref={arrivalViewRef}
-            className="bccns-view bccns-arrival-card"
+            className="bccns-view bccns-arrival-card bccns-ledger"
             data-view="arrival"
             data-active="true"
             aria-labelledby="bccns-arrival-title"
             tabIndex={-1}
           >
-            <p className="bccns-arrival-badge">
-              <span className="bccns-arrival-dot" aria-hidden="true" />
-              <span>
-                Cherry Brook, Nova Scotia · Established {institution.established}
-              </span>
-            </p>
-
-            <svg
-              className="bccns-drawn-welcome-svg"
-              viewBox="0 0 360 56"
-              aria-hidden="true"
-            >
-              <path d="M 18 42 C 88 14, 152 48, 224 24 C 268 10, 308 38, 342 26" />
-            </svg>
-
-            <h1 id="bccns-arrival-title" className="bccns-arrival-heading">
-              Black Cultural Centre
-              <br />
-              for Nova Scotia
-            </h1>
-
-            <p id="bccns-arrival-summary" className="bccns-arrival-copy">
-              {institution.mandate} Turn the rotunda to enter six historical
-              chapters and inspect digitized archival records with their exact
-              holding institutions and citations.
-            </p>
-
-            <ul className="bccns-arrival-communities" aria-label="Historical communities">
-              {[
-                "Birchtown",
-                "Preston",
-                "Shelburne",
-                "Halifax",
-                "Annapolis Royal",
-                "Cherry Brook",
-              ].map((place) => (
-                <li key={place} className="bccns-community-chip">
-                  {place}
-                </li>
-              ))}
-            </ul>
-
-            <div className="bccns-arrival-actions">
-              <button
-                type="button"
-                className="bccns-primary-enter-btn"
-                id="enterArchiveBtn"
-                onClick={() => showGateView("archive")}
-              >
-                <span>Enter digital archive</span>
+            <div className="bccns-ledger-grid">
+              <div className="bccns-ledger-logo">
+                <span className="bccns-ledger-seal">
+                  <img
+                    src="/brand/bcc-mark.png"
+                    alt=""
+                    width={179}
+                    height={118}
+                  />
+                </span>
+              </div>
+              <p className="bccns-ledger-est">
+                <span>Est. {institution.established}</span>
+                <span>Cherry Brook, NS</span>
+              </p>
+              <div className="bccns-ledger-gap" aria-hidden="true" />
+              <Link href="/catalog" className="bccns-ledger-catalog">
+                Browse catalog
                 <svg
                   width="16"
                   height="16"
                   viewBox="0 0 24 24"
                   fill="none"
                   stroke="currentColor"
-                  strokeWidth="2"
+                  strokeWidth="1.75"
                   aria-hidden="true"
                 >
                   <line x1="5" y1="12" x2="19" y2="12" />
                   <polyline points="12 5 19 12 12 19" />
                 </svg>
-              </button>
-              <button
-                type="button"
-                className="bccns-ask-archive-btn"
-                id="askArchiveArrivalBtn"
-                onClick={() => showGateView("ask")}
-              >
-                Ask the archive
-              </button>
+              </Link>
+              <h1 id="bccns-arrival-title" className="bccns-ledger-title">
+                <span className="bccns-ledger-title-fit">
+                  <span>The Black</span>
+                  <span>Cultural</span>
+                  <span>Centre</span>
+                  <em>for Nova Scotia</em>
+                </span>
+              </h1>
+              <p className="bccns-ledger-stack">
+                Archive /
+                <br />
+                Culture /
+                <br />
+                Memory
+              </p>
+              <p id="bccns-arrival-summary" className="bccns-ledger-copy">
+                {institution.mandate} Turn the rotunda to enter six historical
+                chapters and inspect digitized archival records with their exact
+                holding institutions and citations.
+              </p>
+              <div className="bccns-ledger-actions">
+                <button
+                  type="button"
+                  className="bccns-primary-enter-btn"
+                  id="enterArchiveBtn"
+                  onClick={() => showGateView("archive")}
+                >
+                  <span>Enter digital archive</span>
+                  <svg
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.75"
+                    aria-hidden="true"
+                  >
+                    <line x1="5" y1="12" x2="19" y2="12" />
+                    <polyline points="12 5 19 12 12 19" />
+                  </svg>
+                </button>
+                <button
+                  type="button"
+                  className="bccns-ask-archive-btn"
+                  id="askArchiveArrivalBtn"
+                  onClick={() => showGateView("ask")}
+                >
+                  <span className="bccns-ask-mark" aria-hidden="true" />
+                  Ask the archive
+                  <svg
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.75"
+                    aria-hidden="true"
+                  >
+                    <line x1="5" y1="12" x2="19" y2="12" />
+                    <polyline points="12 5 19 12 12 19" />
+                  </svg>
+                </button>
+              </div>
             </div>
           </section>
           ) : (
           <section
             ref={askViewRef}
-            className="bccns-view bccns-arrival-card"
+            className="bccns-view bccns-arrival-card bccns-title-wall"
             data-view="ask"
             data-active="true"
             aria-labelledby="bccns-ask-title"
             tabIndex={-1}
           >
-            <p className="bccns-arrival-badge">
-              <span className="bccns-arrival-dot" aria-hidden="true" />
-              <span>Questions from the holdings</span>
-            </p>
-            <h1 id="bccns-ask-title" className="bccns-arrival-heading">
-              Ask the archive
-            </h1>
-            <p className="bccns-arrival-copy">
-              Ask about a chapter, a place, or a record. The answer stays tied to the holdings.
-            </p>
-            <ArchiveAsk placement="view" view={null} glance={null} />
-            <div className="bccns-arrival-actions">
-              <button
-                type="button"
-                className="bccns-primary-enter-btn"
-                onClick={() => showGateView("archive")}
-              >
-                Enter digital archive
-              </button>
-              <button
-                type="button"
-                className="bccns-ask-archive-btn"
-                onClick={() => showGateView("arrival")}
-              >
-                Back to the centre
-              </button>
+            <div className="bccns-title-grid is-single">
+              <div className="bccns-title-main">
+                <h1 id="bccns-ask-title" className="bccns-arrival-heading">
+                  Ask the archive
+                </h1>
+                <p className="bccns-arrival-copy">
+                  Ask about a chapter, a place, or a record. The answer stays tied to the holdings.
+                </p>
+                <ArchiveAsk placement="view" view={null} glance={null} />
+                <div className="bccns-arrival-actions">
+                  <button
+                    type="button"
+                    className="bccns-primary-enter-btn"
+                    onClick={() => showGateView("archive")}
+                  >
+                    Enter digital archive
+                  </button>
+                  <button
+                    type="button"
+                    className="bccns-ask-archive-btn"
+                    onClick={() => showGateView("arrival")}
+                  >
+                    Back to the centre
+                  </button>
+                </div>
+              </div>
             </div>
           </section>
           )}
