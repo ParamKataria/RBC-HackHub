@@ -3,6 +3,11 @@ import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import { hasEnvVars } from "@/lib/utils";
 import {
+  chooseChapter,
+  HALL_STATION_LIMIT,
+  type ChapterPlacement,
+} from "@/src/lib/archive/chapters";
+import {
   archivePayloadSchema,
   type ArchiveCollection,
   type ArchivePayload,
@@ -316,90 +321,76 @@ const COLLECTION_DEFINITIONS: Omit<ArchiveCollection, "stations">[] = [
 ];
 
 /**
- * SOURCE OF TRUTH KEYWORDS: classifyRowToCollection, CollectionKey, African Nova Scotians in the Age of Slavery and Abolition
- * WHAT: Assigns a Postgres catalog row to one of the 6 BCCNS historical chapter halls based on its collection, subjects, title, and date.
- * WHY: Maps live database rows directly into the 6 rotunda portals in the Centre's own order.
+ * SOURCE OF TRUTH KEYWORDS: placeCatalogRow, chooseChapter, ArchiveStation, historical year
+ * WHAT: Turns one catalog row into a scored station, or skips it when no chapter fits.
+ * WHY: The gallery walk only shows records whose own words and event year agree with that room.
  * WHERE: getArchivePayload.
  */
-function classifyRowToCollection(row: RawRecordRow, station: ArchiveStation): CollectionKey {
-  const haystack = [
-    row.dc_title,
-    row.dc_description ?? "",
-    row.dc_publisher,
-    row.dc_source,
-    station.collection ?? "",
-    ...(row.dc_subject ?? []),
-  ]
-    .join(" ")
-    .toLowerCase();
+function placeCatalogRow(
+  row: RawRecordRow,
+): { station: ArchiveStation; placement: ChapterPlacement } | null {
+  const placement = chooseChapter({
+    title: row.dc_title,
+    description: row.dc_description,
+    source: row.dc_source,
+    publisher: row.dc_publisher,
+    date: row.dc_date,
+    dateText: row.date_text,
+    temporal: row.dcterms_temporal,
+  });
+  if (!placement) return null;
 
-  if (
-    haystack.includes("construction battalion") ||
-    haystack.includes("forestry corps") ||
-    haystack.includes("william andrew white") ||
-    haystack.includes("first world war")
-  ) {
-    return "construction_battalion";
+  const station = mapRowToStation(row);
+  // An event year written on the record wins. Otherwise keep the page or document date
+  // already read by mapRowToStation, including a 2022 ceremony date.
+  if (placement.year) {
+    station.sort_year = placement.year.year;
+    station.display_year = placement.year.label;
   }
-
-  if (
-    haystack.includes("maroon") ||
-    haystack.includes("trelawny") ||
-    haystack.includes("wentworth")
-  ) {
-    return "the_maroons";
-  }
-
-  if (
-    haystack.includes("caribbean") ||
-    haystack.includes("west indies") ||
-    haystack.includes("barbados") ||
-    haystack.includes("whitney pier") ||
-    haystack.includes("trinidad")
-  ) {
-    return "caribbean_migrants";
-  }
-
-  if (
-    haystack.includes("black refugees") ||
-    haystack.includes("war of 1812") ||
-    haystack.includes("cochrane") ||
-    haystack.includes("melville island") ||
-    haystack.includes("hammonds plains") ||
-    haystack.includes("cherry brook")
-  ) {
-    // Records specifically from the Nova Scotia Archives "Age of Slavery and Abolition" collection also enrich the first gallery
-    return "the_refugees";
-  }
-
-  if (
-    row.dc_publisher === "Black Loyalist Heritage Centre" ||
-    haystack.includes("black loyalist") ||
-    haystack.includes("book of negroes") ||
-    haystack.includes("birchtown") ||
-    haystack.includes("boston king") ||
-    haystack.includes("david george") ||
-    haystack.includes("thomas peters")
-  ) {
-    return "black_loyalists";
-  }
-
-  return "slavery_and_halifax";
+  return { station, placement };
 }
 
-const HALL_STATION_LIMIT = 36;
+/**
+ * SOURCE OF TRUTH KEYWORDS: loadCatalogRows, records, range, ArchivePayload
+ * WHAT: Reads every catalog row, one page at a time.
+ * WHY: The halls used to see only Nova Scotia Archives plus the 240 earliest dates, so Loyalist pages never arrived.
+ * WHERE: getArchivePayload.
+ */
+async function loadCatalogRows(): Promise<RawRecordRow[] | null> {
+  const supabase = await createClient();
+  const rows: RawRecordRow[] = [];
+  const pageSize = 1000;
+
+  for (let offset = 0; ; offset += pageSize) {
+    const { data, error } = await supabase
+      .from("records")
+      .select(ARCHIVE_RECORD_COLUMNS)
+      .range(offset, offset + pageSize - 1);
+    if (error || !data) {
+      return rows.length > 0 ? rows : null;
+    }
+    for (const row of data) {
+      const parsed = rawRecordRowSchema.safeParse(row);
+      if (parsed.success) rows.push(parsed.data);
+    }
+    if (data.length < pageSize) return rows;
+  }
+}
 
 /**
- * SOURCE OF TRUTH KEYWORDS: getArchivePayload, ArchivePayload, Supabase records, Dublin Core stations
- * WHAT: Loads the 6 BCCNS halls from catalog rows, including the Nova Scotia Archives exhibit records that have no dc_date.
- * WHY: A handwritten station list was inventing titles for the same URLs the scraper had already stored.
+ * SOURCE OF TRUTH KEYWORDS: getArchivePayload, ArchivePayload, chooseChapter, HALL_STATION_LIMIT
+ * WHAT: Loads the 6 BCCNS halls from the records that match each chapter.
+ * WHY: Each wall keeps the strongest matches, then shows those matches in historical year order.
  * WHERE: app/page.tsx, app/museum/page.tsx, and app/api/archive/route.ts.
  */
 export async function getArchivePayload(): Promise<ArchivePayload> {
   let liveDatabaseConnected = false;
   let totalCatalogRecords = 0;
 
-  const groupedLive: Record<CollectionKey, ArchiveStation[]> = {
+  const groupedLive: Record<
+    CollectionKey,
+    { station: ArchiveStation; score: number }[]
+  > = {
     slavery_and_halifax: [],
     black_loyalists: [],
     the_maroons: [],
@@ -411,32 +402,21 @@ export async function getArchivePayload(): Promise<ArchivePayload> {
   if (hasEnvVars) {
     try {
       const supabase = await createClient();
-      const [countRes, datedRes, exhibitRes] = await Promise.all([
+      const [countRes, rows] = await Promise.all([
         supabase.from("records").select("id", { count: "exact", head: true }),
-        supabase
-          .from("records")
-          .select(ARCHIVE_RECORD_COLUMNS)
-          .order("dc_date", { ascending: true, nullsFirst: false })
-          .limit(240),
-        supabase
-          .from("records")
-          .select(ARCHIVE_RECORD_COLUMNS)
-          .eq("dc_publisher", "Nova Scotia Archives")
-          .limit(1000),
+        loadCatalogRows(),
       ]);
 
-      if (!datedRes.error && datedRes.data) {
+      if (rows) {
         liveDatabaseConnected = true;
-        totalCatalogRecords = countRes.count ?? datedRes.data.length;
-        const seen = new Set<string>();
-        for (const batch of [exhibitRes.data ?? [], datedRes.data]) {
-          for (const row of batch) {
-            const parsed = rawRecordRowSchema.safeParse(row);
-            if (!parsed.success || seen.has(parsed.data.dc_identifier)) continue;
-            seen.add(parsed.data.dc_identifier);
-            const station = mapRowToStation(parsed.data);
-            groupedLive[classifyRowToCollection(parsed.data, station)].push(station);
-          }
+        totalCatalogRecords = countRes.count ?? rows.length;
+        for (const row of rows) {
+          const placed = placeCatalogRow(row);
+          if (!placed) continue;
+          groupedLive[placed.placement.key].push({
+            station: placed.station,
+            score: placed.placement.score,
+          });
         }
       }
     } catch {
@@ -447,9 +427,16 @@ export async function getArchivePayload(): Promise<ArchivePayload> {
   const collections: ArchiveCollection[] = COLLECTION_DEFINITIONS.map((def) => {
     const orderedStations = groupedLive[def.key]
       .sort(
-        (a, b) => a.sort_year - b.sort_year || a.dc_title.localeCompare(b.dc_title),
+        (a, b) =>
+          b.score - a.score ||
+          a.station.sort_year - b.station.sort_year ||
+          a.station.dc_title.localeCompare(b.station.dc_title),
       )
-      .slice(0, HALL_STATION_LIMIT);
+      .slice(0, HALL_STATION_LIMIT)
+      .map((entry) => entry.station)
+      .sort(
+        (a, b) => a.sort_year - b.sort_year || a.dc_title.localeCompare(b.dc_title),
+      );
 
     return {
       ...def,

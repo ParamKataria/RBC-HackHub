@@ -8,7 +8,7 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { claimLines, groundClaims } from "@/lib/services/ask";
+import { claimLines, filtersFromQuestion, groundClaims } from "@/lib/services/ask";
 import {
   InMemoryModelAdapter,
   createInMemoryModelAdapter,
@@ -758,6 +758,27 @@ describe("ArchiveSearchBar Accessibility and Submission Contract", () => {
     expect(clearCatalogSearchParams("")).toBe("/catalog");
     expect(mergeCatalogSearchParams("", {})).toBe("/catalog");
     expect(mergeCatalogSearchParams("", { q: "church" })).toBe("/catalog?q=church");
+  });
+
+  it("keeps the subject words when a question also names a place", () => {
+    const names = {
+      publishers: [],
+      subjects: [],
+      places: ["Canada"],
+      people: [],
+    };
+    const porters = filtersFromQuestion(
+      "Where can I find records about Black railway porters in Canada?",
+      names,
+    );
+    expect(porters.place).toBe("Canada");
+    expect(porters.q).toBe("railway porters");
+
+    const battalion = filtersFromQuestion(
+      "What archives hold information about the No. 2 Construction Battalion?",
+      names,
+    );
+    expect(battalion.q).toBe("construction battalion");
   });
 
   it("overwrites an existing q parameter when submitting a new inquiry while keeping secondary filters", () => {
