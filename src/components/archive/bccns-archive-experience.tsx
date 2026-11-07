@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import React, { ViewTransition, addTransitionType, startTransition, useEffect, useRef, useState } from "react";
+import { BsStars } from "react-icons/bs";
 import * as THREE from "three";
 import { Reflector } from "three/examples/jsm/objects/Reflector.js";
 import { archiveEffects, archiveGeometry } from "@/src/lib/archive";
@@ -2883,7 +2884,7 @@ export function BccnsArchiveExperience({
                   onClick={() => showGateView("ask")}
                 >
                   Ask the archive
-                  <span className="bccns-ask-mark" aria-hidden="true" />
+                  <BsStars className="bccns-ask-mark" aria-hidden="true" />
                 </button>
               </div>
             </div>
