@@ -7,7 +7,6 @@ import { useEffect, useState, type FormEvent } from "react";
 import { ArchiveAnswer, requestArchiveAnswer } from "@/src/components/archive/archive-answer";
 import styles from "@/src/components/archive/archive-search-bar.module.css";
 import {
-  archiveSearchBarPropsSchema,
   askResponseSchema,
   type ArchiveSearchBarProps,
   type AskResponse,
@@ -57,16 +56,15 @@ export function sameFilters(filters: SearchQuery): boolean {
  * WHY: Unifies natural-language inquiries, loading animations, session caching, and grounded citation panels.
  * WHERE: Rendered on the /catalog route and the Home page arrival gate screen.
  */
-export function ArchiveSearchBar(rawProps: ArchiveSearchBarProps) {
-  const {
-    autoNavigate = false,
-    showCatalogCta = false,
-    placeholder = "Ask the archive",
-    claimLimit,
-    className,
-  } = archiveSearchBarPropsSchema.parse(rawProps);
-
-  const { onAnswer, onClear } = rawProps;
+export function ArchiveSearchBar({
+  autoNavigate = false,
+  showCatalogCta = false,
+  placeholder = "Ask the archive",
+  claimLimit,
+  className,
+  onAnswer,
+  onClear,
+}: ArchiveSearchBarProps) {
   const router = useRouter();
   const [question, setQuestion] = useState("");
   const [pending, setPending] = useState(false);

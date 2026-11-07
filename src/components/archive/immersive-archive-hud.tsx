@@ -5,7 +5,6 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { ArchiveAnswer, requestArchiveAnswer } from "@/src/components/archive/archive-answer";
 import {
   askQuestionSchema,
-  immersiveArchiveHUDPropsSchema,
   type AskResponse,
   type ImmersiveArchiveHUDProps,
 } from "@/src/types";
@@ -23,13 +22,11 @@ interface ThreadAnswer {
  * WHY: Enables visitors to inspect room/record glances and ask scoped questions with concise 2-claim summaries.
  * WHERE: Mounted in BccnsArchiveExperience top navigation bar.
  */
-export function ImmersiveArchiveHUD(rawProps: ImmersiveArchiveHUDProps) {
-  const {
-    view = null,
-    glance = null,
-    placement = "header",
-  } = immersiveArchiveHUDPropsSchema.parse(rawProps);
-
+export function ImmersiveArchiveHUD({
+  view = null,
+  glance = null,
+  placement = "header",
+}: ImmersiveArchiveHUDProps) {
   const [question, setQuestion] = useState("");
   const [focused, setFocused] = useState(false);
   const [clearingQuestion, setClearingQuestion] = useState(false);
@@ -87,7 +84,7 @@ export function ImmersiveArchiveHUD(rawProps: ImmersiveArchiveHUDProps) {
       setGlanceOpen(false);
       return;
     }
-    setHeldGlance(glance);
+    setHeldGlance((prev) => (prev?.id === glance.id ? prev : glance));
     setGlanceOpen(false);
   }, [glance]);
 
