@@ -77,6 +77,42 @@ export const modelClaimsSchema = z.object({
 
 export type ModelClaims = z.infer<typeof modelClaimsSchema>;
 
+/**
+ * SOURCE OF TRUTH KEYWORDS: LanguageModelPort, LanguageModelInput, LanguageModelHandler, InMemoryModelAdapterConfig, languageModelInputSchema
+ * WHAT: Seam interface, input schema, handler signature, and test double configuration for archive language models.
+ * WHY: Decouples prompt execution from live Gemini network calls, allowing deterministic test doubles and pluggable model adapters.
+ * WHERE: lib/services/ask.ts, lib/services/model-adapter.ts, app/api/ask/route.ts, and tests.
+ */
+export const languageModelInputSchema = z.object({
+  prompt: z.string(),
+  maxOutputTokens: z.number().int().positive().optional(),
+});
+
+export type LanguageModelInput = z.infer<typeof languageModelInputSchema>;
+
+export type LanguageModelHandler = (
+  input: LanguageModelInput,
+) => Promise<ModelClaims> | ModelClaims;
+
+export interface LanguageModelPort {
+  generateClaims(
+    input: LanguageModelInput | string,
+    options?: { maxOutputTokens?: number },
+  ): Promise<ModelClaims>;
+}
+
+export type InMemoryModelAdapterConfig = {
+  claims?: ModelClaims | readonly AskModelClaim[];
+  handler?: LanguageModelHandler;
+  error?: Error | string | null;
+};
+
+export type InMemoryModelAdapterInput =
+  | ModelClaims
+  | readonly AskModelClaim[]
+  | LanguageModelHandler
+  | InMemoryModelAdapterConfig;
+
 export const geminiResponseSchema = z.object({
   candidates: z
     .array(

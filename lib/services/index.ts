@@ -7,4 +7,5 @@
 export * as archiveService from "./archive";
 export * as askService from "./ask";
 export * as catalogService from "./catalog";
+export * as modelAdapterService from "./model-adapter";
 export * as searchService from "./search";

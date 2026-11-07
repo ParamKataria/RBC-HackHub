@@ -25,6 +25,8 @@ import {
   type AskVocabularyCache,
   type CatalogRecord,
   type ExtraIdValue,
+  type LanguageModelInput,
+  type LanguageModelPort,
   type ModelClaims,
   type RecordBrief,
   type RecordsInViewResult,
@@ -34,7 +36,13 @@ import {
 import { z } from "zod";
 
 import { getArchivePayload } from "./archive";
+import {
+  InMemoryModelAdapter,
+  createInMemoryModelAdapter,
+} from "./model-adapter";
 import { recordsByIds, searchRecords } from "./search";
+
+export { InMemoryModelAdapter, createInMemoryModelAdapter };
 
 const EVIDENCE_LIMIT = 16;
 const EVIDENCE_POOL = 40;
@@ -171,6 +179,28 @@ async function generateClaimsJson(
   }
   throw new Error(lastMessage);
 }
+
+/**
+ * SOURCE OF TRUTH KEYWORDS: GeminiModelAdapter, LanguageModelPort, defaultModelAdapter, generateClaimsJson, askArchive
+ * WHAT: Default language model adapter calling Google Gemini through generateClaimsJson.
+ * WHY: Provides production execution of the LanguageModelPort interface for live inquiry processing.
+ * WHERE: askArchive in lib/services/ask.ts and app/api/ask/route.ts.
+ */
+export class GeminiModelAdapter implements LanguageModelPort {
+  async generateClaims(
+    input: LanguageModelInput | string,
+    options?: { maxOutputTokens?: number },
+  ): Promise<ModelClaims> {
+    const prompt = typeof input === "string" ? input : input.prompt;
+    const maxOutputTokens =
+      typeof input === "object" && input.maxOutputTokens !== undefined
+        ? input.maxOutputTokens
+        : options?.maxOutputTokens;
+    return generateClaimsJson(prompt, maxOutputTokens);
+  }
+}
+
+export const defaultModelAdapter: LanguageModelPort = new GeminiModelAdapter();
 
 let vocabularyCache: AskVocabularyCache | null = null;
 
@@ -722,6 +752,7 @@ function selectEvidence(
 export async function askArchive(
   question: string,
   view?: AskView,
+  modelAdapter: LanguageModelPort = defaultModelAdapter,
 ): Promise<AskResponse> {
   const names = await askVocabulary();
   const filters = filtersFromQuestion(question, names);
@@ -819,7 +850,10 @@ export async function askArchive(
 
   let lines: string[] = [];
   try {
-    const drafted = await generateClaimsJson(summaryPrompt, 1400);
+    const drafted = await modelAdapter.generateClaims({
+      prompt: summaryPrompt,
+      maxOutputTokens: 1400,
+    });
     lines = claimLines(drafted.claims ?? [], records, wallById);
   } catch {
     lines = [];
