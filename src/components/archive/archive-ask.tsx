@@ -1,51 +1,9 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 
-import {
-  askErrorSchema,
-  askQuestionSchema,
-  askResponseSchema,
-  noArchiveSourceMessage,
-  type AskCitation,
-  type AskResponse,
-  type AskView,
-} from "@/src/types";
-
-/**
- * SOURCE OF TRUTH KEYWORDS: shortAskAnswer, AskResponse, Sources, citation
- * WHAT: Keeps the first two grounded sentences and drops the record-id list.
- * WHY: The glass sheet should answer briefly. The full source list stays on the catalog page.
- * WHERE: ArchiveAsk overlay.
- */
-function shortAskAnswer(summary: string): string {
-  const withoutSources = summary.split(/\n\nSources:/)[0] ?? summary;
-  const withoutLead = withoutSources.replace(/^The search matched[\s\S]*?\n\n/, "");
-  const sentences = withoutLead
-    .split(/\n\n/)
-    .map((sentence) =>
-      sentence.replace(/\s*\[[0-9a-f-]{36}\]/gi, "").replace(/\s+/g, " ").trim(),
-    )
-    .filter((sentence) => sentence.length > 0);
-  return sentences.slice(0, 2).join(" ") || noArchiveSourceMessage;
-}
-
-/**
- * SOURCE OF TRUTH KEYWORDS: citationHref, AskCitation, catalog link
- * WHAT: Builds the link for a cited record, preferring the in-archive deep link.
- * WHY: Catalog ids and collection records do not share one URL shape.
- * WHERE: ArchiveAsk answer sources.
- */
-function citationHref(citation: AskCitation): string {
-  const isCatalogId = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
-    citation.id,
-  );
-  if (!isCatalogId && citation.collectionKey) {
-    return `/?collection=${citation.collectionKey}&record=${citation.id}`;
-  }
-  return `/catalog/${citation.id}`;
-}
+import { ArchiveAnswer, requestArchiveAnswer } from "@/src/components/archive/archive-answer";
+import { askQuestionSchema, type AskResponse, type AskView } from "@/src/types";
 
 export interface ArchiveGlance {
   id: string;
@@ -64,7 +22,7 @@ interface ThreadAnswer {
 /**
  * SOURCE OF TRUTH KEYWORDS: ArchiveAsk, settled glance, spring expand, search stays on top
  * WHAT: Header question field that drops open with a short note once a door or record has settled.
- * WHY: The note replaces the context chip. The input stays the first row so a question can still be asked about what is in view.
+ * WHY: The sheet keeps the room motion. The answer itself comes from ArchiveAnswer, limited to two claims.
  * WHERE: BccnsArchiveExperience top bar.
  */
 export function ArchiveAsk({
@@ -100,50 +58,14 @@ export function ArchiveAsk({
 
     setAnswers((prev) => [...prev, { id, result: null, error: null, pending: true }]);
     try {
-      const response = await fetch("/api/ask", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ...parsedQuestion.data,
-          view: view
-            ? {
-                scope: view.scope,
-                collectionKey: view.collectionKey,
-                recordId: view.recordId,
-              }
-            : undefined,
-        }),
-      });
-      const payload: unknown = await response.json();
-      if (!response.ok) {
-        const parsedError = askErrorSchema.safeParse(payload);
-        const message = parsedError.success ? parsedError.data.error : "Ask failed";
-        setAnswers((prev) =>
-          prev.map((item) =>
-            item.id === id ? { ...item, pending: false, error: message } : item,
-          ),
-        );
-        return;
-      }
-      const parsed = askResponseSchema.safeParse(payload);
-      if (!parsed.success) {
-        setAnswers((prev) =>
-          prev.map((item) =>
-            item.id === id ? { ...item, pending: false, error: "Ask failed" } : item,
-          ),
-        );
-        return;
-      }
+      const result = await requestArchiveAnswer(parsedQuestion.data.question, view);
       setAnswers((prev) =>
-        prev.map((item) =>
-          item.id === id ? { ...item, pending: false, result: parsed.data } : item,
-        ),
+        prev.map((item) => (item.id === id ? { ...item, pending: false, result } : item)),
       );
-    } catch {
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : "Ask failed";
       setAnswers((prev) =>
-        prev.map((item) =>
-          item.id === id ? { ...item, pending: false, error: "Ask failed" } : item,
-        ),
+        prev.map((item) => (item.id === id ? { ...item, pending: false, error: message } : item)),
       );
     }
   };
@@ -257,7 +179,6 @@ export function ArchiveAsk({
     const timer = window.setTimeout(() => setTextShown(true), reduceMotion ? 0 : 280);
     return () => window.clearTimeout(timer);
   }, [expanded]);
-  const citations: AskCitation[] = shownAnswer?.result?.citations.slice(0, 4) ?? [];
   const surfaceClass = [
     "bccns-siri",
     focused ? "is-focused" : "",
@@ -368,18 +289,9 @@ export function ArchiveAsk({
                 <div key={shownAnswer.id} className="bccns-siri-answer-block">
                   {shownAnswer.error && <p className="bccns-siri-answer">{shownAnswer.error}</p>}
                   {shownAnswer.result && (
-                    <>
-                      <p className="bccns-siri-answer">{shortAskAnswer(shownAnswer.result.summary)}</p>
-                      {citations.length > 0 && (
-                        <ul className="bccns-siri-sources">
-                          {citations.map((citation) => (
-                            <li key={citation.id}>
-                              <Link href={citationHref(citation)}>{citation.title}</Link>
-                            </li>
-                          ))}
-                        </ul>
-                      )}
-                    </>
+                    <div className="bccns-siri-answer">
+                      <ArchiveAnswer result={shownAnswer.result} claimLimit={2} />
+                    </div>
                   )}
                 </div>
               )}
