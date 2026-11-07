@@ -96,8 +96,10 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  min-width: 36px;
+  min-height: 36px;
   margin: 0;
-  padding: 0;
+  padding: 6px;
   border: 0;
   background: transparent;
   color: hsl(var(--primary));

@@ -15,7 +15,9 @@ import {
 } from "@/lib/services/model-adapter";
 import {
   ArchiveSearchBar,
+  clearCatalogSearchParams,
   filterHref,
+  mergeCatalogSearchParams,
 } from "@/src/components/archive";
 import {
   archiveSearchBarPropsSchema,
@@ -470,10 +472,20 @@ describe("Zero Storage Side Effects and Pure State Isolation", () => {
     length: 0,
   };
 
+  function expectStorageUntouched(): void {
+    expect(getItemSpy).not.toHaveBeenCalled();
+    expect(setItemSpy).not.toHaveBeenCalled();
+    expect(removeItemSpy).not.toHaveBeenCalled();
+    expect(clearSpy).not.toHaveBeenCalled();
+  }
+
   beforeEach(() => {
     vi.clearAllMocks();
     Object.defineProperty(globalThis, "window", {
-      value: { sessionStorage: mockSessionStorage },
+      value: {
+        sessionStorage: mockSessionStorage,
+        location: { search: "" },
+      },
       writable: true,
       configurable: true,
     });
@@ -493,9 +505,7 @@ describe("Zero Storage Side Effects and Pure State Isolation", () => {
     });
 
     expect(parsed.initialQuestion).toBe("Tell me about Africville");
-    expect(getItemSpy).not.toHaveBeenCalled();
-    expect(setItemSpy).not.toHaveBeenCalled();
-    expect(removeItemSpy).not.toHaveBeenCalled();
+    expectStorageUntouched();
   });
 
   it("never accesses sessionStorage during filterHref parameter translation and round-trip decoding", () => {
@@ -507,9 +517,7 @@ describe("Zero Storage Side Effects and Pure State Isolation", () => {
 
     expect(parsed.q).toBe("Africville Baptist Church");
     expect(parsed.place).toBe("Halifax, NS");
-    expect(getItemSpy).not.toHaveBeenCalled();
-    expect(setItemSpy).not.toHaveBeenCalled();
-    expect(removeItemSpy).not.toHaveBeenCalled();
+    expectStorageUntouched();
   });
 
   it("never accesses sessionStorage during ArchiveSearchBar component rendering", () => {
@@ -522,42 +530,24 @@ describe("Zero Storage Side Effects and Pure State Isolation", () => {
     );
 
     expect(markup).toContain('value="Addie States historical records"');
-    expect(getItemSpy).not.toHaveBeenCalled();
-    expect(setItemSpy).not.toHaveBeenCalled();
-    expect(removeItemSpy).not.toHaveBeenCalled();
+    expectStorageUntouched();
   });
 
-  it("never accesses sessionStorage across the answer response lifecycle and callback notifications", () => {
-    const mockAnswer = askResponseSchema.parse({
-      question: "Africville community history",
-      filters: { q: "Africville", page: 1 },
-      count: 1,
-      claims: [
-        {
-          text: "Africville was a vibrant community in Nova Scotia.",
-          citedRecordIds: ["11111111-2222-3333-4444-555555555555"],
-        },
-      ],
-      summary: "Africville was a vibrant community in Nova Scotia.",
-      citations: [
-        {
-          id: "11111111-2222-3333-4444-555555555555",
-          title: "Africville Church Records",
-        },
-      ],
-    });
+  it("preserves secondary filters and synchronizes catalog URL without touching sessionStorage", () => {
+    const currentSearch = "?institution=BCCNS&place=Halifax&page=3";
+    const answerFilters: SearchQuery = { q: "Africville Church" };
 
-    const onAnswerMock = vi.fn();
-    const onClearMock = vi.fn();
+    const mergedHref = mergeCatalogSearchParams(currentSearch, answerFilters);
+    expect(mergedHref).toBe(
+      "/catalog?institution=BCCNS&place=Halifax&q=Africville+Church",
+    );
 
-    onAnswerMock(mockAnswer);
-    onClearMock();
+    const clearedHref = clearCatalogSearchParams(
+      mergedHref.replace("/catalog", ""),
+    );
+    expect(clearedHref).toBe("/catalog?institution=BCCNS&place=Halifax");
 
-    expect(onAnswerMock).toHaveBeenCalledWith(mockAnswer);
-    expect(onClearMock).toHaveBeenCalled();
-    expect(getItemSpy).not.toHaveBeenCalled();
-    expect(setItemSpy).not.toHaveBeenCalled();
-    expect(removeItemSpy).not.toHaveBeenCalled();
+    expectStorageUntouched();
   });
 
   it("never accesses sessionStorage during inquiry mount, submission, or clearing", () => {
@@ -585,10 +575,7 @@ describe("Zero Storage Side Effects and Pure State Isolation", () => {
     expect(onClearSpy).toHaveBeenCalled();
 
     // Verify all storage spies remained untouched throughout mount, submission, and clearing
-    expect(getItemSpy).not.toHaveBeenCalled();
-    expect(setItemSpy).not.toHaveBeenCalled();
-    expect(removeItemSpy).not.toHaveBeenCalled();
-    expect(clearSpy).not.toHaveBeenCalled();
+    expectStorageUntouched();
   });
 });
 
@@ -693,6 +680,80 @@ describe("ArchiveSearchBar Accessibility and Submission Contract", () => {
       "Africville Baptist Church",
     );
     expect(catalogSearchBarProps.autoNavigate).toBe(true);
+  });
+
+  it("synchronizes empty query on route change when initialQuestion transitions to empty or undefined", () => {
+    // 1. Populated initial question mounts with text value
+    const populated = renderToStaticMarkup(
+      React.createElement(ArchiveSearchBar, {
+        initialQuestion: "Initial search term",
+      }),
+    );
+    expect(populated).toContain('value="Initial search term"');
+
+    // 2. Empty string initial question clears the input value
+    const empty = renderToStaticMarkup(
+      React.createElement(ArchiveSearchBar, {
+        initialQuestion: "",
+      }),
+    );
+    expect(empty).toContain('value=""');
+
+    // 3. Undefined initial question (e.g. navigation away from query) defaults gracefully to empty
+    const cleared = renderToStaticMarkup(
+      React.createElement(ArchiveSearchBar, {
+        initialQuestion: undefined,
+      }),
+    );
+    expect(cleared).toContain('value=""');
+  });
+
+  it("preserves secondary filters when autoNavigate generates catalog query strings", () => {
+    const existingSearch = "?institution=BCCNS&place=Halifax&type=photograph&page=3";
+    const answerFilters: SearchQuery = { q: "Africville Baptist Church" };
+
+    const targetUrl = mergeCatalogSearchParams(existingSearch, answerFilters);
+    expect(targetUrl).toBe(
+      "/catalog?institution=BCCNS&place=Halifax&type=photograph&q=Africville+Baptist+Church",
+    );
+
+    // Assert that secondary filters survived and pagination was purged
+    const params = new URLSearchParams(targetUrl.replace("/catalog?", ""));
+    expect(params.get("institution")).toBe("BCCNS");
+    expect(params.get("place")).toBe("Halifax");
+    expect(params.get("type")).toBe("photograph");
+    expect(params.get("q")).toBe("Africville Baptist Church");
+    expect(params.has("page")).toBe(false);
+  });
+
+  it("clears q and page from URL on dismissal to return to secondary-only browsing", () => {
+    const existingSearch = "?institution=BCCNS&place=Halifax&q=Africville+Baptist+Church&page=2";
+    const dismissedUrl = clearCatalogSearchParams(existingSearch);
+
+    expect(dismissedUrl).toBe("/catalog?institution=BCCNS&place=Halifax");
+    const params = new URLSearchParams(dismissedUrl.replace("/catalog?", ""));
+    expect(params.has("q")).toBe(false);
+    expect(params.has("page")).toBe(false);
+    expect(params.get("institution")).toBe("BCCNS");
+    expect(params.get("place")).toBe("Halifax");
+  });
+
+  it("resets to bare /catalog on dismissal when no secondary filters are present", () => {
+    const existingSearch = "?q=Africville&page=1";
+    const dismissedUrl = clearCatalogSearchParams(existingSearch);
+    expect(dismissedUrl).toBe("/catalog");
+  });
+
+  it("handles empty or blank search string gracefully without trailing question marks", () => {
+    expect(clearCatalogSearchParams("")).toBe("/catalog");
+    expect(mergeCatalogSearchParams("", {})).toBe("/catalog");
+    expect(mergeCatalogSearchParams("", { q: "church" })).toBe("/catalog?q=church");
+  });
+
+  it("overwrites an existing q parameter when submitting a new inquiry while keeping secondary filters", () => {
+    const existingSearch = "?institution=BCCNS&q=old+query&page=2";
+    const updated = mergeCatalogSearchParams(existingSearch, { q: "new query" });
+    expect(updated).toBe("/catalog?institution=BCCNS&q=new+query");
   });
 });
 

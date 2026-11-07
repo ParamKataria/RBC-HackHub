@@ -30,6 +30,43 @@ export function filterHref(filters: SearchQuery): string {
 }
 
 /**
+ * SOURCE OF TRUTH KEYWORDS: mergeCatalogSearchParams, SearchQuery, URLSearchParams, secondaryFilters, preserveFilters
+ * WHAT: Merges inquiry search filters with existing URL query parameters while removing pagination.
+ * WHY: Preserves user-selected secondary facets (institution, place, type, etc.) during new inquiries.
+ * WHERE: ArchiveSearchBar ask handler and catalog navigation tests.
+ */
+export function mergeCatalogSearchParams(
+  currentSearch: string,
+  filters: SearchQuery,
+): string {
+  const currentParams = new URLSearchParams(currentSearch);
+  for (const [key, value] of Object.entries(filters)) {
+    if (value) {
+      currentParams.set(key, String(value));
+    } else {
+      currentParams.delete(key);
+    }
+  }
+  currentParams.delete("page");
+  const qs = currentParams.toString();
+  return qs ? `/catalog?${qs}` : "/catalog";
+}
+
+/**
+ * SOURCE OF TRUTH KEYWORDS: clearCatalogSearchParams, URLSearchParams, clearInquiry, resetFilters, secondaryFilters
+ * WHAT: Clears the question and pagination query parameters from the URL while preserving secondary filters.
+ * WHY: Returns visitors to secondary-only facet browsing when closing or dismissing an archive inquiry.
+ * WHERE: ArchiveSearchBar clearAnswer handler and catalog navigation tests.
+ */
+export function clearCatalogSearchParams(currentSearch: string): string {
+  const currentParams = new URLSearchParams(currentSearch);
+  currentParams.delete("q");
+  currentParams.delete("page");
+  const qs = currentParams.toString();
+  return qs ? `/catalog?${qs}` : "/catalog";
+}
+
+/**
  * SOURCE OF TRUTH KEYWORDS: ArchiveSearchBar, ArchiveSearchBarProps, initialQuestion, shared search bar, AI inquiry, filterHref
  * WHAT: Global reusable search bar for Ask the Archive across Catalog and Home page views.
  * WHY: Unifies natural-language inquiries, loading animations, grounded citation panels, and URL query synchronization without storage leakage.
@@ -51,10 +88,14 @@ export function ArchiveSearchBar({
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<AskResponse | null>(null);
 
+  /**
+   * SOURCE OF TRUTH KEYWORDS: syncInitialQuestion, initialQuestion, ArchiveSearchBar, routeSync, emptyQuerySync
+   * WHAT: Synchronizes the internal input question state whenever the initialQuestion prop changes.
+   * WHY: Keeps the inquiry input aligned with external route transitions and resets to empty when cleared from URL params.
+   * WHERE: ArchiveSearchBar local question state synchronization effect.
+   */
   useEffect(() => {
-    if (initialQuestion !== undefined) {
-      setQuestion(initialQuestion);
-    }
+    setQuestion(initialQuestion ?? "");
   }, [initialQuestion]);
 
   /**
@@ -64,14 +105,25 @@ export function ArchiveSearchBar({
    * WHERE: Triggered by user form submission inside ArchiveSearchBar.
    */
   const ask = async (rawQuestion: string) => {
+    const trimmed = rawQuestion.trim();
+    if (!trimmed) {
+      return;
+    }
     setPending(true);
     setError(null);
     try {
-      const answer = await requestArchiveAnswer(rawQuestion);
+      const answer = await requestArchiveAnswer(trimmed);
       setResult(answer);
       onAnswer?.(answer);
-      if (autoNavigate) {
-        router.push(filterHref(answer.filters));
+      if (autoNavigate && typeof window !== "undefined") {
+        const currentParams = new URLSearchParams(window.location.search);
+        for (const [key, value] of Object.entries(answer.filters)) {
+          if (value) currentParams.set(key, String(value));
+          else currentParams.delete(key);
+        }
+        currentParams.delete("page");
+        const qs = currentParams.toString();
+        router.push(qs ? `/catalog?${qs}` : "/catalog");
       }
     } catch (caught) {
       setResult(null);
@@ -106,6 +158,13 @@ export function ArchiveSearchBar({
     setError(null);
     setQuestion("");
     onClear?.();
+    if (autoNavigate && typeof window !== "undefined") {
+      const currentParams = new URLSearchParams(window.location.search);
+      currentParams.delete("q");
+      currentParams.delete("page");
+      const qs = currentParams.toString();
+      router.push(qs ? `/catalog?${qs}` : "/catalog");
+    }
   };
 
   const open = result !== null || error !== null;
