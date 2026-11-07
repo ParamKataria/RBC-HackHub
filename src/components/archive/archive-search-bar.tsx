@@ -75,13 +75,16 @@ export function ArchiveSearchBar({
   };
 
   /**
-   * SOURCE OF TRUTH KEYWORDS: onSubmitAskForm, FormEvent, rawQuestion, ArchiveSearchBar
+   * SOURCE OF TRUTH KEYWORDS: onSubmitAskForm, FormEvent, rawQuestion, ArchiveSearchBar, submitButton
    * WHAT: Handles form submission event and initiates the archive inquiry.
-   * WHY: Prevents browser page reload and triggers asynchronous question evaluation.
-   * WHERE: ArchiveSearchBar form onSubmit listener.
+   * WHY: Prevents browser page reload and duplicate in-flight requests while triggering asynchronous question evaluation.
+   * WHERE: ArchiveSearchBar form onSubmit listener and submit button click/touch trigger.
    */
   const onSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (pending) {
+      return;
+    }
     void ask(question);
   };
 
@@ -104,10 +107,17 @@ export function ArchiveSearchBar({
   return (
     <div className={containerClass} role={open ? "region" : undefined} aria-label="Archive answer">
       <form className={`${styles.form}${pending ? ` ${styles.pending}` : ""}`} onSubmit={onSubmit}>
-        <svg className={styles.icon} viewBox="0 0 24 24" aria-hidden="true">
-          <circle cx="10.5" cy="10.5" r="6.25" fill="none" stroke="currentColor" strokeWidth="1.75" />
-          <path d="M15.2 15.2 L20 20" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
-        </svg>
+        <button
+          type="submit"
+          className={styles.submitButton}
+          aria-label="Submit inquiry"
+          disabled={pending}
+        >
+          <svg className={styles.icon} viewBox="0 0 24 24" aria-hidden="true">
+            <circle cx="10.5" cy="10.5" r="6.25" fill="none" stroke="currentColor" strokeWidth="1.75" />
+            <path d="M15.2 15.2 L20 20" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
+          </svg>
+        </button>
         <input
           className={styles.input}
           type="search"
