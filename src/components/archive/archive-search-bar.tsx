@@ -1,21 +1,28 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, type FormEvent } from "react";
 
-import styles from "@/app/catalog/_components/ask-archive.module.css";
 import { ArchiveAnswer, requestArchiveAnswer } from "@/src/components/archive/archive-answer";
-import { askResponseSchema, type AskResponse, type SearchQuery } from "@/src/types";
+import styles from "@/src/components/archive/archive-search-bar.module.css";
+import {
+  archiveSearchBarPropsSchema,
+  askResponseSchema,
+  type ArchiveSearchBarProps,
+  type AskResponse,
+  type SearchQuery,
+} from "@/src/types";
 
 const STORED_ANSWER_KEY = "bccns-catalog-ask";
 
 /**
- * SOURCE OF TRUTH KEYWORDS: filterHref, SearchQuery, /catalog, /api/ask
- * WHAT: Builds the catalog URL for the filters the question was translated into.
- * WHY: Asking a question should open the same records the summary used.
- * WHERE: AskArchive, after a successful answer.
+ * SOURCE OF TRUTH KEYWORDS: filterHref, SearchQuery, /catalog, /api/ask, URLSearchParams
+ * WHAT: Converts structured search filters into a URL query string for the catalog.
+ * WHY: Ensures that plain-language inquiries link directly to the retrieved records.
+ * WHERE: ArchiveSearchBar when resolving an answer or rendering the Catalog CTA link.
  */
-function filterHref(filters: SearchQuery): string {
+export function filterHref(filters: SearchQuery): string {
   const params = new URLSearchParams();
   for (const [key, value] of Object.entries(filters)) {
     if (value) {
@@ -27,12 +34,13 @@ function filterHref(filters: SearchQuery): string {
 }
 
 /**
- * SOURCE OF TRUTH KEYWORDS: sameFilters, SearchQuery, catalog URL
- * WHAT: Checks that the current catalog query is the answer's filter set.
- * WHY: A stored answer should stay visible only while those records are on screen.
- * WHERE: AskArchive on load.
+ * SOURCE OF TRUTH KEYWORDS: sameFilters, SearchQuery, catalog URL, active query match
+ * WHAT: Validates whether the current URL search parameters match the stored answer filters.
+ * WHY: Prevents stale answers from persisting after a researcher has navigated to different catalog filters.
+ * WHERE: ArchiveSearchBar on initial hydration in catalog contexts.
  */
-function sameFilters(filters: SearchQuery): boolean {
+export function sameFilters(filters: SearchQuery): boolean {
+  if (typeof window === "undefined") return false;
   const expected = new URLSearchParams(filterHref(filters).split("?")[1] ?? "");
   const current = new URLSearchParams(window.location.search);
   current.delete("page");
@@ -44,12 +52,21 @@ function sameFilters(filters: SearchQuery): boolean {
 }
 
 /**
- * SOURCE OF TRUTH KEYWORDS: AskArchive, /api/ask, ArchiveAnswer, catalog
- * WHAT: The catalog ask bar. It uses the shared answer and then opens the matching records.
- * WHY: The citation treatment lives in ArchiveAnswer. This surface only adds the catalog filter.
- * WHERE: Catalog index, above the structured filters.
+ * SOURCE OF TRUTH KEYWORDS: ArchiveSearchBar, ArchiveSearchBarProps, shared search bar, AI inquiry
+ * WHAT: Global reusable search bar for Ask the Archive across Catalog and Home page views.
+ * WHY: Unifies natural-language inquiries, loading animations, session caching, and grounded citation panels.
+ * WHERE: Rendered on the /catalog route and the Home page arrival gate screen.
  */
-export function AskArchive() {
+export function ArchiveSearchBar(rawProps: ArchiveSearchBarProps) {
+  const {
+    autoNavigate = false,
+    showCatalogCta = false,
+    placeholder = "Ask the archive",
+    claimLimit,
+    className,
+  } = archiveSearchBarPropsSchema.parse(rawProps);
+
+  const { onAnswer, onClear } = rawProps;
   const router = useRouter();
   const [question, setQuestion] = useState("");
   const [pending, setPending] = useState(false);
@@ -57,11 +74,15 @@ export function AskArchive() {
   const [result, setResult] = useState<AskResponse | null>(null);
 
   useEffect(() => {
+    if (typeof window === "undefined") return;
     const stored = window.sessionStorage.getItem(STORED_ANSWER_KEY);
     if (!stored) return;
     try {
       const parsed = askResponseSchema.safeParse(JSON.parse(stored));
-      if (!parsed.success || !sameFilters(parsed.data.filters)) return;
+      if (!parsed.success) return;
+      if (window.location.pathname.startsWith("/catalog") && !sameFilters(parsed.data.filters)) {
+        return;
+      }
       setResult(parsed.data);
       setQuestion(parsed.data.question);
     } catch {
@@ -74,9 +95,14 @@ export function AskArchive() {
     setError(null);
     try {
       const answer = await requestArchiveAnswer(rawQuestion);
-      window.sessionStorage.setItem(STORED_ANSWER_KEY, JSON.stringify(answer));
+      if (typeof window !== "undefined") {
+        window.sessionStorage.setItem(STORED_ANSWER_KEY, JSON.stringify(answer));
+      }
       setResult(answer);
-      router.push(filterHref(answer.filters));
+      onAnswer?.(answer);
+      if (autoNavigate) {
+        router.push(filterHref(answer.filters));
+      }
     } catch (caught) {
       setResult(null);
       setError(caught instanceof Error ? caught.message : "Ask failed");
@@ -91,16 +117,20 @@ export function AskArchive() {
   };
 
   const clearAnswer = () => {
-    window.sessionStorage.removeItem(STORED_ANSWER_KEY);
+    if (typeof window !== "undefined") {
+      window.sessionStorage.removeItem(STORED_ANSWER_KEY);
+    }
     setResult(null);
     setError(null);
     setQuestion("");
+    onClear?.();
   };
 
   const open = result !== null || error !== null;
+  const containerClass = className ? `${styles.ask} ${className}` : styles.ask;
 
   return (
-    <div className={styles.ask} role={open ? "region" : undefined} aria-label="Archive answer">
+    <div className={containerClass} role={open ? "region" : undefined} aria-label="Archive answer">
       <form className={`${styles.form}${pending ? ` ${styles.pending}` : ""}`} onSubmit={onSubmit}>
         <svg className={styles.icon} viewBox="0 0 24 24" aria-hidden="true">
           <circle cx="10.5" cy="10.5" r="6.25" fill="none" stroke="currentColor" strokeWidth="1.75" />
@@ -109,8 +139,8 @@ export function AskArchive() {
         <input
           className={styles.input}
           type="search"
-          placeholder="Ask the archive"
-          aria-label="Ask the archive"
+          placeholder={placeholder}
+          aria-label={placeholder}
           autoComplete="off"
           value={question}
           onChange={(event) => setQuestion(event.target.value)}
@@ -131,7 +161,18 @@ export function AskArchive() {
       {open ? (
         <div className={styles.panel}>
           {error ? <p className={styles.error}>{error}</p> : null}
-          {result ? <ArchiveAnswer result={result} /> : null}
+          {result ? (
+            <>
+              <ArchiveAnswer result={result} claimLimit={claimLimit} />
+              {showCatalogCta ? (
+                <div className={styles.ctaRow}>
+                  <Link href={filterHref(result.filters)} className={styles.ctaButton}>
+                    Explore matching records in Catalog &rarr;
+                  </Link>
+                </div>
+              ) : null}
+            </>
+          ) : null}
         </div>
       ) : null}
     </div>

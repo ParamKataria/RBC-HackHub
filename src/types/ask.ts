@@ -174,3 +174,34 @@ export const extraIdValueSchema = z.union([
 ]);
 
 export type ExtraIdValue = z.infer<typeof extraIdValueSchema>;
+
+export const archiveGlanceSchema = z.object({
+  id: z.string(),
+  kicker: z.string(),
+  title: z.string(),
+  body: z.string(),
+});
+
+export type ArchiveGlance = z.infer<typeof archiveGlanceSchema>;
+
+export const archiveSearchBarPropsSchema = z.object({
+  autoNavigate: z.boolean().optional(),
+  showCatalogCta: z.boolean().optional(),
+  placeholder: z.string().optional(),
+  claimLimit: z.number().int().positive().optional(),
+  className: z.string().optional(),
+});
+
+export type ArchiveSearchBarProps = z.infer<typeof archiveSearchBarPropsSchema> & {
+  onAnswer?: (answer: AskResponse) => void;
+  onClear?: () => void;
+};
+
+export const immersiveArchiveHUDPropsSchema = z.object({
+  view: askViewSchema.nullable().optional(),
+  glance: archiveGlanceSchema.nullable().optional(),
+  placement: z.enum(["header", "view"]).optional(),
+});
+
+export type ImmersiveArchiveHUDProps = z.infer<typeof immersiveArchiveHUDPropsSchema>;
+

@@ -3,14 +3,12 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 
 import { ArchiveAnswer, requestArchiveAnswer } from "@/src/components/archive/archive-answer";
-import { askQuestionSchema, type AskResponse, type AskView } from "@/src/types";
-
-export interface ArchiveGlance {
-  id: string;
-  kicker: string;
-  title: string;
-  body: string;
-}
+import {
+  askQuestionSchema,
+  immersiveArchiveHUDPropsSchema,
+  type AskResponse,
+  type ImmersiveArchiveHUDProps,
+} from "@/src/types";
 
 interface ThreadAnswer {
   id: string;
@@ -20,20 +18,18 @@ interface ThreadAnswer {
 }
 
 /**
- * SOURCE OF TRUTH KEYWORDS: ArchiveAsk, settled glance, spring expand, search stays on top
- * WHAT: Header question field that drops open with a short note once a door or record has settled.
- * WHY: The sheet keeps the room motion. The answer itself comes from ArchiveAnswer, limited to two claims.
- * WHERE: BccnsArchiveExperience top bar.
+ * SOURCE OF TRUTH KEYWORDS: ImmersiveArchiveHUD, settled glance, 3D rotunda search, room record scoping
+ * WHAT: Ambient HUD controller and search bar floating in the 3D digital archive top navigation bar.
+ * WHY: Enables visitors to inspect room/record glances and ask scoped questions with concise 2-claim summaries.
+ * WHERE: Mounted in BccnsArchiveExperience top navigation bar.
  */
-export function ArchiveAsk({
-  view,
-  glance,
-  placement = "header",
-}: {
-  view: AskView | null;
-  glance: ArchiveGlance | null;
-  placement?: "header" | "view";
-}) {
+export function ImmersiveArchiveHUD(rawProps: ImmersiveArchiveHUDProps) {
+  const {
+    view = null,
+    glance = null,
+    placement = "header",
+  } = immersiveArchiveHUDPropsSchema.parse(rawProps);
+
   const [question, setQuestion] = useState("");
   const [focused, setFocused] = useState(false);
   const [clearingQuestion, setClearingQuestion] = useState(false);
@@ -103,7 +99,8 @@ export function ArchiveAsk({
   }, [glance, glanceOpen, heldGlance]);
 
   const pending = answers.some((item) => item.pending);
-  const shownAnswer = [...answers].reverse().find((item) => !item.pending && (item.result || item.error)) ?? null;
+  const shownAnswer =
+    [...answers].reverse().find((item) => !item.pending && (item.result || item.error)) ?? null;
 
   const openDetails = () => {
     if (!glance) return;
@@ -143,12 +140,6 @@ export function ArchiveAsk({
   const [infoShown, setInfoShown] = useState(false);
   const [textShown, setTextShown] = useState(false);
 
-  /**
-   * SOURCE OF TRUTH KEYWORDS: info fade, text fade, ArchiveAsk, glance indicator
-   * WHAT: Fades the info mark in and out, and fades the note only after the sheet has opened.
-   * WHY: Unmounting the mark skips the fade, and fading the note while the sheet height is still zero makes the words pop in.
-   * WHERE: ArchiveAsk header search.
-   */
   useEffect(() => {
     if (!infoWanted) {
       setInfoShown(false);
@@ -181,6 +172,7 @@ export function ArchiveAsk({
     const timer = window.setTimeout(() => setTextShown(true), reduceMotion ? 0 : 280);
     return () => window.clearTimeout(timer);
   }, [expanded]);
+
   const surfaceClass = [
     "bccns-siri",
     focused ? "is-focused" : "",
@@ -191,6 +183,13 @@ export function ArchiveAsk({
   ]
     .filter((name) => name.length > 0)
     .join(" ");
+
+  const placeholder =
+    view?.scope === "record"
+      ? "Ask about this record"
+      : view?.scope === "room"
+        ? "Ask about this room"
+        : "Ask the archive";
 
   return (
     <div className={placement === "view" ? "bccns-header-search bccns-ask-view-search" : "bccns-header-search"}>
@@ -204,15 +203,8 @@ export function ArchiveAsk({
           <input
             id="archiveSearch"
             type="search"
-            placeholder={
-              view?.scope === "record"
-                ? "Ask about this record"
-                : view?.scope === "room"
-                  ? "Ask about this room"
-                  : "Ask the archive"
-            }
-            aria-label="Ask the archive"
-            aria-expanded={expanded}
+            placeholder={placeholder}
+            aria-label={placeholder}
             autoComplete="off"
             className={clearingQuestion ? "is-clearing" : undefined}
             value={question}
@@ -258,7 +250,7 @@ export function ArchiveAsk({
                   aria-label="Close details"
                   onClick={clearCurrent}
                 >
-                  ×
+                  &times;
                 </button>
               )}
             </span>

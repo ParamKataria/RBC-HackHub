@@ -1,8 +1,8 @@
-import { AskArchive } from "@/app/catalog/_components/ask-archive";
 import { CatalogFilters } from "@/app/catalog/_components/catalog-filters";
 import { CatalogResultsView } from "@/app/catalog/_components/catalog-results-view";
 import styles from "@/app/catalog/_components/catalog-results.module.css";
 import { catalogService, searchService } from "@/lib/services";
+import { ArchiveSearchBar } from "@/src/components/archive";
 import {
   catalogSearchParamsInputSchema,
   firstSearchValue,
@@ -136,7 +136,7 @@ export async function CatalogResults({ searchParams }: CatalogPageProps) {
         </p>
       </header>
 
-      <AskArchive />
+      <ArchiveSearchBar autoNavigate={true} />
 
       <section aria-label="Catalog totals" className={`${styles.totals} overflow-hidden`}>
         <dl className="grid grid-cols-2 md:grid-cols-5">

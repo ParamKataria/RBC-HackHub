@@ -60,6 +60,8 @@ export type {
 } from "./search";
 
 export {
+  archiveGlanceSchema,
+  archiveSearchBarPropsSchema,
   askCitationSchema,
   askErrorSchema,
   askModelClaimSchema,
@@ -70,6 +72,7 @@ export {
   askVocabularySchema,
   extraIdValueSchema,
   geminiResponseSchema,
+  immersiveArchiveHUDPropsSchema,
   modelClaimsSchema,
   nameRowsSchema,
   noArchiveSourceMessage,
@@ -80,6 +83,8 @@ export {
   wallRecordSchema,
 } from "./ask";
 export type {
+  ArchiveGlance,
+  ArchiveSearchBarProps,
   AskCitation,
   AskError,
   AskModelClaim,
@@ -90,6 +95,7 @@ export type {
   AskVocabularyCache,
   ExtraIdValue,
   GeminiResponse,
+  ImmersiveArchiveHUDProps,
   ModelClaims,
   NameRows,
   RecordBrief,
