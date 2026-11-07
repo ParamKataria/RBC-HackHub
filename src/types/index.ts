@@ -1,24 +1,29 @@
 /**
- * SOURCE OF TRUTH KEYWORDS: catalog types, CatalogRecord, CatalogQuery, ConnectionsGraph, barrel
+ * SOURCE OF TRUTH KEYWORDS: catalog types, CatalogRecord, CatalogQuery, ConnectionsGraph, DateInterval, barrel
  * WHAT: Re-exports shared catalog, search, ask, museum, and connections types.
  * WHY: Callers import shared schemas and types from one barrel module.
  * WHERE: Services, API routes, and catalog/archive pages.
  */
 export {
+  catalogFiltersPropsSchema,
+  catalogPagePropsSchema,
   catalogQuerySchema,
   catalogRecordDetailSchema,
   catalogRecordPageParamsSchema,
+  catalogRecordPagePropsSchema,
   catalogRecordSchema,
   catalogSearchParamsInputSchema,
   catalogSearchParamsSchema,
   catalogTotalsSchema,
   catalogViewSchema,
+  firstSearchValue,
   linkedListPropsSchema,
   parseCatalogSearchParams,
   recordIdSchema,
 } from "./catalog";
 
 export type {
+  CatalogFiltersProps,
   CatalogPageProps,
   CatalogQuery,
   CatalogRecord,
@@ -35,11 +40,63 @@ export type {
 export { fieldLabel, schemaFieldMap } from "./schema-map";
 export type { SchemaField, SchemaFieldKey } from "./schema-map";
 
-export { parseSearchParams, recordTypeValues, searchQuerySchema } from "./search";
-export type { SearchQuery, SearchResponse } from "./search";
+export {
+  dateIntervalSchema,
+  dateRecordFieldsSchema,
+  extractDateInterval,
+  parseSearchParams,
+  recordMatchesDateRange,
+  recordTypeValues,
+  searchOptionsSchema,
+  searchQuerySchema,
+  searchResponseSchema,
+} from "./search";
+export type {
+  DateInterval,
+  DateRecordFields,
+  SearchOptions,
+  SearchQuery,
+  SearchResponse,
+} from "./search";
 
-export { askErrorSchema, askQuestionSchema, askResponseSchema, askViewSchema, noArchiveSourceMessage } from "./ask";
-export type { AskCitation, AskError, AskQuestion, AskResponse, AskView } from "./ask";
+export {
+  askCitationSchema,
+  askErrorSchema,
+  askModelClaimSchema,
+  askQuestionSchema,
+  askResponseSchema,
+  askViewSchema,
+  askVocabularyCacheSchema,
+  askVocabularySchema,
+  extraIdValueSchema,
+  geminiResponseSchema,
+  modelClaimsSchema,
+  nameRowsSchema,
+  noArchiveSourceMessage,
+  noDirectAnswerMessage,
+  recordBriefSchema,
+  recordsInViewResultSchema,
+  scoredEvidenceRecordSchema,
+  wallRecordSchema,
+} from "./ask";
+export type {
+  AskCitation,
+  AskError,
+  AskModelClaim,
+  AskQuestion,
+  AskResponse,
+  AskView,
+  AskVocabulary,
+  AskVocabularyCache,
+  ExtraIdValue,
+  GeminiResponse,
+  ModelClaims,
+  NameRows,
+  RecordBrief,
+  RecordsInViewResult,
+  ScoredEvidenceRecord,
+  WallRecord,
+} from "./ask";
 
 export {
   archiveCollectionSchema,

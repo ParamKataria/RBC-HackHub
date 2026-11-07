@@ -54,35 +54,31 @@ export function CatalogResultsView(rawProps: CatalogResultsViewProps) {
         <div
           role="group"
           aria-label="Catalog results display mode"
-          className="inline-flex items-center rounded-full border border-border bg-card p-1"
+          className="inline-flex items-center gap-1 rounded-full border border-border bg-card p-1"
         >
-          <button
+          <Button
             type="button"
+            size="sm"
+            variant={viewMode === "list" ? "default" : "ghost"}
             aria-pressed={viewMode === "list"}
             onClick={() => {
               setViewMode("list");
               setFocalRecordId(null);
             }}
-            className={`rounded-full px-3.5 py-1.5 text-xs font-semibold transition-colors ${
-              viewMode === "list"
-                ? "bg-primary text-primary-foreground"
-                : "text-foreground hover:bg-muted hover:text-primary"
-            }`}
+            className="h-auto rounded-full px-3.5 py-1.5 text-xs font-semibold shadow-none"
           >
             List View
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
+            size="sm"
+            variant={viewMode === "graph" ? "default" : "ghost"}
             aria-pressed={viewMode === "graph"}
             onClick={() => setViewMode("graph")}
-            className={`rounded-full px-3.5 py-1.5 text-xs font-semibold transition-colors ${
-              viewMode === "graph"
-                ? "bg-primary text-primary-foreground"
-                : "text-foreground hover:bg-muted hover:text-primary"
-            }`}
+            className="h-auto rounded-full px-3.5 py-1.5 text-xs font-semibold shadow-none"
           >
             View on Connection Graph
-          </button>
+          </Button>
         </div>
       </div>
 

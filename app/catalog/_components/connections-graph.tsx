@@ -24,7 +24,7 @@ import {
 /**
  * SOURCE OF TRUTH KEYWORDS: CATEGORY_META, GraphNodeCategory, GraphCategoryMeta, ConnectionsGraphView, nodeClass, swatchClass
  * WHAT: Lookup table mapping each GraphNodeCategory to its human-readable archival label, SVG circle class, and legend swatch class.
- * WHY: Eliminates repeated switch statements while color-coding all 5 node categories strictly with theme tokens.
+ * WHY: Eliminates repeated switch statements while color-coding all 6 node categories strictly with theme tokens.
  * WHERE: Legend bar, D3 SVG node join, and details strip in ConnectionsGraphView.
  */
 const CATEGORY_META: Record<GraphNodeCategory, GraphCategoryMeta> = {
@@ -48,19 +48,24 @@ const CATEGORY_META: Record<GraphNodeCategory, GraphCategoryMeta> = {
     nodeClass: "fill-secondary stroke-primary",
     swatchClass: "bg-secondary border-primary",
   },
-  community: {
-    label: "Community / Subject",
+  subject: {
+    label: "Subject",
     nodeClass: "fill-card stroke-accent",
     swatchClass: "bg-card border-accent",
   },
+  community: {
+    label: "Community",
+    nodeClass: "fill-muted stroke-foreground",
+    swatchClass: "bg-muted border-foreground",
+  },
 };
 
-const LEGEND_CATEGORIES: readonly GraphNodeCategory[] = [
+const BASE_LEGEND_CATEGORIES: readonly GraphNodeCategory[] = [
   "record",
   "institution",
   "person",
   "place",
-  "community",
+  "subject",
 ];
 
 /**
@@ -154,6 +159,15 @@ export function ConnectionsGraphView(rawProps: ConnectionsGraphViewProps) {
     return map;
   }, [graph.nodes]);
 
+  const legendCategories = useMemo<readonly GraphNodeCategory[]>(() => {
+    const hasCommunity = graph.nodes.some(
+      (node) => node.category === "community",
+    );
+    return hasCommunity
+      ? [...BASE_LEGEND_CATEGORIES, "community"]
+      : BASE_LEGEND_CATEGORIES;
+  }, [graph.nodes]);
+
   const activeNode = activeNodeId ? (nodesById.get(activeNodeId) ?? null) : null;
 
   const { connectedNodeIds, activeNeighbors }: GraphActiveNeighborhood =
@@ -201,14 +215,7 @@ export function ConnectionsGraphView(rawProps: ConnectionsGraphViewProps) {
       simNodesById.set(sn.id, sn);
     }
 
-    const simLinks: D3SimulationLink[] = graph.edges.map((edge) => ({
-      id: edge.id,
-      sourceId: edge.sourceId,
-      targetId: edge.targetId,
-      relation: edge.relation,
-      source: edge.sourceId,
-      target: edge.targetId,
-    }));
+    const simLinks = connectionsGraph.toD3SimulationLinks(graph.edges);
 
     const simulation = connectionsGraph
       .createD3GraphSimulation(simNodes, simLinks)
@@ -535,7 +542,7 @@ export function ConnectionsGraphView(rawProps: ConnectionsGraphViewProps) {
       </div>
 
       <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
-        {LEGEND_CATEGORIES.map((category) => (
+        {legendCategories.map((category) => (
           <div key={category} className="flex items-center gap-1.5">
             <span
               aria-hidden="true"

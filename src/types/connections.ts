@@ -14,6 +14,7 @@ export const graphNodeCategoryValues = [
   "institution",
   "person",
   "place",
+  "subject",
   "community",
 ] as const;
 
@@ -25,6 +26,7 @@ export const graphEntityCategoryValues = [
   "institution",
   "person",
   "place",
+  "subject",
   "community",
 ] as const;
 
@@ -36,7 +38,8 @@ export const graphEdgeRelationValues = [
   "held by",
   "creator / contributor",
   "located in",
-  "community / subject",
+  "subject",
+  "community",
 ] as const;
 
 export const graphEdgeRelationSchema = z.enum(graphEdgeRelationValues);
@@ -119,6 +122,7 @@ export type GraphRecordInput = z.infer<typeof graphRecordInputSchema>;
 
 export const graphEntityFilterParamValues = [
   "institution",
+  "creator",
   "q",
   "place",
   "subject",

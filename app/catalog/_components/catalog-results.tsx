@@ -4,6 +4,8 @@ import { CatalogResultsView } from "@/app/catalog/_components/catalog-results-vi
 import styles from "@/app/catalog/_components/catalog-results.module.css";
 import { catalogService, searchService } from "@/lib/services";
 import {
+  catalogSearchParamsInputSchema,
+  firstSearchValue,
   parseSearchParams,
   type CatalogPageProps,
   type SearchQuery,
@@ -49,20 +51,28 @@ function catalogPageHref(filters: SearchQuery, page: number): string {
  * WHERE: app/catalog/page.tsx inside Suspense.
  */
 export async function CatalogResults({ searchParams }: CatalogPageProps) {
-  const rawParams = await searchParams;
-  const requestParams = new URLSearchParams();
-  for (const key of ["q", "institution", "type", "subject", "place", "from", "to"] as const) {
-    const value = rawParams[key];
-    const first = Array.isArray(value) ? value[0] : value;
-    if (first) {
-      requestParams.set(key, first);
-    }
-  }
-  const pageText = Array.isArray(rawParams.page) ? rawParams.page[0] : rawParams.page;
-  const requestedPage = Number.parseInt(pageText ?? "", 10);
-
   let filters: SearchQuery;
+  let requestedPage = 1;
   try {
+    const rawParams = catalogSearchParamsInputSchema.parse(await searchParams);
+    const requestParams = new URLSearchParams();
+    for (const key of [
+      "q",
+      "institution",
+      "type",
+      "creator",
+      "subject",
+      "place",
+      "from",
+      "to",
+    ] as const) {
+      const first = firstSearchValue(rawParams[key]);
+      if (first) {
+        requestParams.set(key, first);
+      }
+    }
+    const pageText = firstSearchValue(rawParams.page);
+    requestedPage = Number.parseInt(pageText, 10);
     filters = parseSearchParams(requestParams);
   } catch (error) {
     const message =

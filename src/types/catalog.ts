@@ -1,7 +1,9 @@
 import { z } from "zod";
 
+import { searchQuerySchema } from "./search";
+
 /**
- * SOURCE OF TRUTH KEYWORDS: CatalogQuery, CatalogRecord, CatalogRecordDetail, raw_metadata, dc_identifier, LinkedListProps
+ * SOURCE OF TRUTH KEYWORDS: CatalogQuery, CatalogRecord, CatalogRecordDetail, raw_metadata, dc_identifier, CatalogFiltersProps
  * WHAT: Zod schemas and types for the public Black history catalog.
  * WHY: Search input, component props, and Postgres rows are checked in one place before the page renders them.
  * WHERE: lib/services/catalog.ts and app/catalog.
@@ -21,9 +23,9 @@ export type CatalogSearchParams = z.infer<typeof catalogSearchParamsSchema>;
  * SOURCE OF TRUTH KEYWORDS: firstSearchValue, searchValueSchema, CatalogSearchParams, queryParamString, parseCatalogSearchParams
  * WHAT: Extracts the first string value from a Next.js search param string or string array.
  * WHY: URL query parameters in Next.js App Router can be repeated as string arrays or omitted.
- * WHERE: parseCatalogSearchParams in src/types/catalog.ts.
+ * WHERE: parseCatalogSearchParams in src/types/catalog.ts and CatalogResults in app/catalog/_components/catalog-results.tsx.
  */
-function firstSearchValue(value: string | string[] | undefined): string {
+export function firstSearchValue(value: string | string[] | undefined): string {
   if (Array.isArray(value)) {
     return value[0] ?? "";
   }
@@ -152,6 +154,7 @@ export const catalogSearchParamsInputSchema = z.object({
   q: searchValueSchema,
   institution: searchValueSchema,
   type: searchValueSchema,
+  creator: searchValueSchema,
   subject: searchValueSchema,
   place: searchValueSchema,
   from: searchValueSchema,
@@ -163,9 +166,11 @@ export type CatalogSearchParamsInput = z.infer<
   typeof catalogSearchParamsInputSchema
 >;
 
-export type CatalogPageProps = {
-  searchParams: Promise<CatalogSearchParamsInput>;
-};
+export const catalogPagePropsSchema = z.object({
+  searchParams: z.promise(catalogSearchParamsInputSchema),
+});
+
+export type CatalogPageProps = z.infer<typeof catalogPagePropsSchema>;
 
 export const catalogRecordPageParamsSchema = z.object({
   id: z.string().min(1),
@@ -175,9 +180,18 @@ export type CatalogRecordPageParams = z.infer<
   typeof catalogRecordPageParamsSchema
 >;
 
-export type CatalogRecordPageProps = {
-  params: Promise<CatalogRecordPageParams>;
-};
+export const catalogRecordPagePropsSchema = z.object({
+  params: z.promise(catalogRecordPageParamsSchema),
+});
+
+export type CatalogRecordPageProps = z.infer<typeof catalogRecordPagePropsSchema>;
+
+export const catalogFiltersPropsSchema = z.object({
+  publishers: z.array(z.string()),
+  query: searchQuerySchema,
+});
+
+export type CatalogFiltersProps = z.infer<typeof catalogFiltersPropsSchema>;
 
 export const linkedListPropsSchema = z.object({
   title: z.string().min(1),

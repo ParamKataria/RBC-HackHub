@@ -8,8 +8,10 @@ export {
   GRAPH_CANVAS_HEIGHT,
   GRAPH_CANVAS_WIDTH,
   buildConnectionsGraph,
+  buildConnectionsGraphFromRecords,
   clampGraphCoordinate,
   createD3GraphSimulation,
   recordDateLabel,
+  toD3SimulationLinks,
 } from "./graph-builder";
 export * as connectionsGraph from "./graph-builder";

@@ -117,9 +117,24 @@ function entityNodeRadius(
 }
 
 /**
- * SOURCE OF TRUTH KEYWORDS: extractRecordEntities, ExtractedGraphEntity, GraphEntityCategory, bccns_community, dc_subject, filterHref
- * WHAT: Extracts deduplicated Institution, Person, Place, and Community/Subject entities from one record.
- * WHY: Unifies flat CatalogRecord fields and joined CatalogRecordDetail relations into typed graph entities with working catalog filter URLs.
+ * SOURCE OF TRUTH KEYWORDS: buildFilterHref, GraphEntityFilterParam, URLSearchParams, catalogFilterUrl, extractRecordEntities
+ * WHAT: Builds a URL-encoded /catalog filter link for a given filter parameter and entity label.
+ * WHY: Ensures all entity nodes in the Connection Graph link to valid, URL-encoded catalog filter queries.
+ * WHERE: extractRecordEntities in graph-builder.ts.
+ */
+function buildFilterHref(
+  filterParam: GraphEntityFilterParam,
+  label: string,
+): string {
+  const params = new URLSearchParams();
+  params.set(filterParam, label);
+  return `/catalog?${params.toString()}`;
+}
+
+/**
+ * SOURCE OF TRUTH KEYWORDS: extractRecordEntities, ExtractedGraphEntity, GraphEntityCategory, bccns_community, dc_subject, dc_creator
+ * WHAT: Extracts deduplicated Institution, Person, Place, Community, and Subject entities from one record.
+ * WHY: Unifies flat CatalogRecord fields and joined CatalogRecordDetail relations into typed graph entities with working catalog filter URLs while keeping Subject and Community strictly separate.
  * WHERE: selectActiveRecords in graph-builder.ts.
  */
 function extractRecordEntities(
@@ -142,15 +157,13 @@ function extractRecordEntities(
     if (entitiesByKey.has(normalizedKey)) {
       return;
     }
-    const params = new URLSearchParams();
-    params.set(filterParam, label);
     entitiesByKey.set(normalizedKey, {
       key: normalizedKey,
       label,
       category,
       relation,
       subtitle,
-      filterHref: `/catalog?${params.toString()}`,
+      filterHref: buildFilterHref(filterParam, label),
     });
   };
 
@@ -171,7 +184,7 @@ function extractRecordEntities(
         "person",
         "creator / contributor",
         `Person (${item.role})`,
-        "q",
+        "creator",
       );
     }
   }
@@ -181,7 +194,7 @@ function extractRecordEntities(
       "person",
       "creator / contributor",
       "Person / Creator",
-      "q",
+      "creator",
     );
   }
 
@@ -211,7 +224,7 @@ function extractRecordEntities(
       addEntity(
         item.communities.name,
         "community",
-        "community / subject",
+        "community",
         "Community",
         "q",
       );
@@ -221,7 +234,7 @@ function extractRecordEntities(
     addEntity(
       comm,
       "community",
-      "community / subject",
+      "community",
       "Community",
       "q",
     );
@@ -231,8 +244,8 @@ function extractRecordEntities(
     for (const item of record.record_subjects) {
       addEntity(
         item.subjects.name,
-        "community",
-        "community / subject",
+        "subject",
+        "subject",
         "Subject",
         "subject",
       );
@@ -241,8 +254,8 @@ function extractRecordEntities(
   for (const subject of record.dc_subject) {
     addEntity(
       subject,
-      "community",
-      "community / subject",
+      "subject",
+      "subject",
       "Subject",
       "subject",
     );
@@ -336,6 +349,25 @@ export function clampGraphCoordinate(x: number, y: number): GraphPoint {
 }
 
 /**
+ * SOURCE OF TRUTH KEYWORDS: toD3SimulationLinks, GraphEdge, D3SimulationLink, forceLink, computeD3ForcePositions, ConnectionsGraphView
+ * WHAT: Maps validated GraphEdge rows into mutable D3SimulationLink objects for d3-force link simulation.
+ * WHY: Centralizes GraphEdge-to-D3SimulationLink construction across equilibrium layout and interactive client drag simulation.
+ * WHERE: computeD3ForcePositions in graph-builder.ts and ConnectionsGraphView in app/catalog/_components/connections-graph.tsx.
+ */
+export function toD3SimulationLinks(
+  edges: readonly GraphEdge[],
+): D3SimulationLink[] {
+  return edges.map((edge) => ({
+    id: edge.id,
+    sourceId: edge.sourceId,
+    targetId: edge.targetId,
+    relation: edge.relation,
+    source: edge.sourceId,
+    target: edge.targetId,
+  }));
+}
+
+/**
  * SOURCE OF TRUTH KEYWORDS: createD3GraphSimulation, forceSimulation, forceLink, forceManyBody, forceRadial, forceCollide
  * WHAT: Creates a configured d3-force Simulation instance with link, charge, center, radial, and collision forces.
  * WHY: Shares the exact physics topology across static equilibrium layout and interactive client d3-drag simulation.
@@ -370,7 +402,7 @@ export function createD3GraphSimulation(
 }
 
 /**
- * SOURCE OF TRUTH KEYWORDS: computeD3ForcePositions, createD3GraphSimulation, clampGraphCoordinate, D3SimulationNode, D3SimulationLink, GraphPoint
+ * SOURCE OF TRUTH KEYWORDS: computeD3ForcePositions, createD3GraphSimulation, toD3SimulationLinks, clampGraphCoordinate, D3SimulationNode, GraphPoint
  * WHAT: Runs the shared d3-force simulation for 180 ticks to compute non-overlapping equilibrium node positions.
  * WHY: Uses the d3-force library instead of manual coordinate math so nodes settle naturally by link topology and collision radius.
  * WHERE: buildConnectionsGraph in graph-builder.ts.
@@ -379,14 +411,7 @@ function computeD3ForcePositions(
   simNodes: D3SimulationNode[],
   edges: readonly GraphEdge[],
 ): Map<string, GraphPoint> {
-  const simLinks: D3SimulationLink[] = edges.map((edge) => ({
-    id: edge.id,
-    sourceId: edge.sourceId,
-    targetId: edge.targetId,
-    relation: edge.relation,
-    source: edge.sourceId,
-    target: edge.targetId,
-  }));
+  const simLinks = toD3SimulationLinks(edges);
 
   const simulation = createD3GraphSimulation(simNodes, simLinks).stop();
   simulation.tick(180);
@@ -454,10 +479,11 @@ export function buildConnectionsGraph(
   );
 
   const categoryPriority: Record<GraphEntityCategory, number> = {
-    institution: 4,
-    person: 3,
-    place: 2,
-    community: 1,
+    institution: 5,
+    person: 4,
+    place: 3,
+    community: 2,
+    subject: 1,
   };
 
   const sortedEntities = Array.from(entityOccurrences.values()).sort((a, b) => {
@@ -624,3 +650,11 @@ export function buildConnectionsGraph(
     sharedEntityCount,
   });
 }
+
+/**
+ * SOURCE OF TRUTH KEYWORDS: buildConnectionsGraphFromRecords, buildConnectionsGraph, ConnectionsGraph, GraphRecordInput, ConnectionsGraphOptions
+ * WHAT: Alias of buildConnectionsGraph for callers and tests importing buildConnectionsGraphFromRecords.
+ * WHY: Preserves a consistent seam name across graph-builder consumers.
+ * WHERE: Exported from src/lib/connections/graph-builder.ts and src/lib/connections/index.ts.
+ */
+export const buildConnectionsGraphFromRecords = buildConnectionsGraph;

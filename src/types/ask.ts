@@ -1,17 +1,21 @@
 import { z } from "zod";
 
+import { catalogRecordSchema } from "./catalog";
 import { collectionKeySchema } from "./museum";
 import { searchQuerySchema } from "./search";
 
 /**
- * SOURCE OF TRUTH KEYWORDS: AskQuestion, AskCitation, AskResponse, /api/ask, record id
- * WHAT: Validated question and grounded answer for Ask the Archive.
- * WHY: The model may only summarize records returned by the structured search, and every citation must be a real record id.
+ * SOURCE OF TRUTH KEYWORDS: AskQuestion, AskCitation, AskResponse, AskModelClaim, WallRecord, AskVocabulary
+ * WHAT: Validated question, model claim schemas, vocabulary types, and grounded answer types for Ask the Archive.
+ * WHY: The model may only summarize records returned by the structured search, and every citation must resolve to a real retrieved record id.
  * WHERE: lib/services/ask.ts, app/api/ask/route.ts, the catalog ask form, and the rotunda header ask field.
  */
 
 export const noArchiveSourceMessage =
   "No records in the archive match this question.";
+
+export const noDirectAnswerMessage =
+  "These records do not answer that. The matching records are listed below.";
 
 export const askViewSchema = z.object({
   scope: z.enum(["room", "record"]),
@@ -51,3 +55,122 @@ export const askErrorSchema = z.object({
 });
 
 export type AskError = z.infer<typeof askErrorSchema>;
+
+export const nameRowsSchema = z.array(
+  z.object({
+    name: z.string(),
+  }),
+);
+
+export type NameRows = z.infer<typeof nameRowsSchema>;
+
+export const askModelClaimSchema = z.object({
+  text: z.string(),
+  recordIds: z.array(z.string()),
+});
+
+export type AskModelClaim = z.infer<typeof askModelClaimSchema>;
+
+export const modelClaimsSchema = z.object({
+  claims: z.array(askModelClaimSchema).nullable().optional(),
+});
+
+export type ModelClaims = z.infer<typeof modelClaimsSchema>;
+
+export const geminiResponseSchema = z.object({
+  candidates: z
+    .array(
+      z.object({
+        content: z
+          .object({
+            parts: z
+              .array(
+                z.object({
+                  text: z.string().optional(),
+                  thought: z.boolean().optional(),
+                }),
+              )
+              .optional(),
+          })
+          .optional(),
+      }),
+    )
+    .optional(),
+  error: z
+    .object({
+      message: z.string().optional(),
+    })
+    .optional(),
+});
+
+export type GeminiResponse = z.infer<typeof geminiResponseSchema>;
+
+export const askVocabularySchema = z.object({
+  publishers: z.array(z.string()),
+  subjects: z.array(z.string()),
+  places: z.array(z.string()),
+  people: z.array(z.string()).optional(),
+});
+
+export type AskVocabulary = z.infer<typeof askVocabularySchema>;
+
+export const askVocabularyCacheSchema = askVocabularySchema.extend({
+  expires: z.number(),
+});
+
+export type AskVocabularyCache = z.infer<typeof askVocabularyCacheSchema>;
+
+export const recordBriefSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  type: z.string(),
+  publisher: z.string(),
+  creator: z.string().nullable(),
+  date: z.string().nullable(),
+  dateText: z.string().nullable(),
+  place: z.string().nullable(),
+  timePeriod: z.string().nullable(),
+  subjects: z.array(z.string()),
+  description: z.string().nullable(),
+});
+
+export type RecordBrief = z.infer<typeof recordBriefSchema>;
+
+export const wallRecordSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  description: z.string().nullable(),
+  dateText: z.string().nullable(),
+  place: z.string().nullable(),
+  subjects: z.array(z.string()),
+  collectionKey: collectionKeySchema,
+});
+
+export type WallRecord = z.infer<typeof wallRecordSchema>;
+
+export const recordsInViewResultSchema = z.object({
+  note: z.string(),
+  records: z.array(z.lazy(() => catalogRecordSchema)),
+  wall: z.array(wallRecordSchema),
+});
+
+export type RecordsInViewResult = z.infer<typeof recordsInViewResultSchema>;
+
+export const scoredEvidenceRecordSchema = z.object({
+  record: z.lazy(() => catalogRecordSchema),
+  score: z.number(),
+  descriptionLength: z.number().int().nonnegative(),
+});
+
+export type ScoredEvidenceRecord = z.infer<typeof scoredEvidenceRecordSchema>;
+
+export const extraIdValueSchema = z.union([
+  wallRecordSchema,
+  z.lazy(() => catalogRecordSchema),
+  z.string(),
+  z.boolean(),
+  z.number(),
+  z.null(),
+]);
+
+export type ExtraIdValue = z.infer<typeof extraIdValueSchema>;
