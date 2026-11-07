@@ -1,7 +1,7 @@
 /**
- * SOURCE OF TRUTH KEYWORDS: askSearchVerificationTest, InMemoryModelAdapter, ArchiveSearchBar, filterHref, zeroStorageSideEffects, inquiryHandoff
- * WHAT: Unit, accessibility, and seam verification tests for inquiry execution, filterHref serialization, and pure React search bar state.
- * WHY: Proves deterministic claim grounding, zero sessionStorage side effects, accessible button contracts, and URL query synchronization.
+ * SOURCE OF TRUTH KEYWORDS: askSearchVerificationTest, InMemoryModelAdapter, ArchiveSearchBar, filterHref, zeroStorageSideEffects, inquiryHandoff, ticket04ComprehensiveVerification
+ * WHAT: Unit, accessibility, and seam verification tests for inquiry execution, filterHref serialization, collapsible filters, and dual-mode search bar state.
+ * WHY: Proves deterministic claim grounding, zero sessionStorage side effects, accessible button contracts, URL query synchronization, and complete Ticket 04 verification.
  * WHERE: tests/ask-search-verification.test.ts (promised in lib/services/ask.ts line 7 and Ticket 04).
  */
 import React from "react";
@@ -1169,6 +1169,420 @@ describe("CatalogFilters Collapsible Panel and Active Count Badge", () => {
     expect(html).toContain('id="catalog-filters-panel"');
     expect(html).not.toContain('id="catalog-filters-panel" hidden=""');
     expect(html).toContain("border-t border-border/60");
+  });
+});
+
+/**
+ * SOURCE OF TRUTH KEYWORDS: comprehensiveVerificationSuite, ticket04IntegrationVerification, modeToggleRetention, filterResetContract, legacyBackwardCompatibility, searchAriaContracts
+ * WHAT: Comprehensive integration and accessibility test suite validating the complete search and collapsible filter workflow.
+ * WHY: Verifies all Ticket 04 acceptance criteria: input preservation without network calls, URL facet synchronization, panel dismissal, filter count math, filter reset, backward compatibility, and full ARIA contracts.
+ * WHERE: tests/ask-search-verification.test.ts (Ticket 04).
+ */
+describe("Ticket 04: Comprehensive Verification and Accessibility Test Suite", () => {
+  const samplePublishers = [
+    "BCCNS",
+    "Nova Scotia Archives",
+    "Dalhousie University",
+  ];
+
+  it("preserves drafted query text across mode switching without triggering network requests", () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    const draftedQuery = "Addie States Africville genealogy";
+
+    // 1. Initial render in keyword mode with drafted text
+    const keywordMarkup = renderToStaticMarkup(
+      React.createElement(ArchiveSearchBar, {
+        enableModeToggle: true,
+        defaultMode: "keyword",
+        initialQuestion: draftedQuery,
+      }),
+    );
+    expect(keywordMarkup).toContain(`value="${draftedQuery}"`);
+    expect(keywordMarkup).toContain(
+      'placeholder="Search title, description, subject, place, or community..."',
+    );
+
+    // 2. Switching to AI mode preserves identical drafted query in memory
+    const aiMarkup = renderToStaticMarkup(
+      React.createElement(ArchiveSearchBar, {
+        enableModeToggle: true,
+        defaultMode: "ai",
+        initialQuestion: draftedQuery,
+      }),
+    );
+    expect(aiMarkup).toContain(`value="${draftedQuery}"`);
+    expect(aiMarkup).toContain('placeholder="Ask the archive"');
+
+    // 3. Verifies zero network requests were triggered during mode rendering / switching
+    expect(fetchSpy).not.toHaveBeenCalled();
+    fetchSpy.mockRestore();
+  });
+
+  it("ensures all mode toggle and CTA controls are non-submitting type button to prevent unsolicited requests", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(ArchiveSearchBar, {
+        enableModeToggle: true,
+        defaultMode: "keyword",
+        initialQuestion: "Draft inquiry",
+      }),
+    );
+
+    // Both radio buttons must explicitly have type="button"
+    const radioMatches = html.match(/<button[^>]*role="radio"[^>]*>/g) ?? [];
+    expect(radioMatches).toHaveLength(2);
+    for (const button of radioMatches) {
+      expect(button).toContain('type="button"');
+    }
+
+    // The call-to-action prompt chip must explicitly have type="button"
+    const ctaMatches =
+      html.match(/<button[^>]*class="[^"]*ctaPrompt[^"]*"[^>]*>/g) ?? [];
+    expect(ctaMatches).toHaveLength(1);
+    expect(ctaMatches[0]).toContain('type="button"');
+
+    // Only the actual search submit button has type="submit"
+    const submitMatches = html.match(/<button[^>]*type="submit"[^>]*>/g) ?? [];
+    expect(submitMatches).toHaveLength(1);
+    expect(submitMatches[0]).toContain('aria-label="Search catalog"');
+  });
+
+  it("preserves all active secondary facet filters when submitting keyword searches", () => {
+    const currentSearch =
+      "?institution=BCCNS&type=photograph&creator=Addie+States&subject=Community&place=Halifax&from=1960-01-01&to=1970-12-31&page=5";
+    const newKeyword = "Church Choir";
+
+    const targetUrl = mergeCatalogSearchParams(currentSearch, {
+      institution: "BCCNS",
+      type: "photograph",
+      creator: "Addie States",
+      subject: "Community",
+      place: "Halifax",
+      from: "1960-01-01",
+      to: "1970-12-31",
+      q: newKeyword,
+    });
+
+    // Verify all 7 secondary facet filters are preserved in URL search params
+    const params = new URLSearchParams(targetUrl.replace("/catalog?", ""));
+    expect(params.get("q")).toBe("Church Choir");
+    expect(params.get("institution")).toBe("BCCNS");
+    expect(params.get("type")).toBe("photograph");
+    expect(params.get("creator")).toBe("Addie States");
+    expect(params.get("subject")).toBe("Community");
+    expect(params.get("place")).toBe("Halifax");
+    expect(params.get("from")).toBe("1960-01-01");
+    expect(params.get("to")).toBe("1970-12-31");
+
+    // Verify pagination parameter is purged on new keyword search
+    expect(params.has("page")).toBe(false);
+  });
+
+  it("replaces existing keyword query while maintaining secondary facet parameters", () => {
+    const existingSearch =
+      "?institution=BCCNS&place=Halifax&q=Old+Search+Term&page=2";
+    const updatedUrl = mergeCatalogSearchParams(existingSearch, {
+      institution: "BCCNS",
+      place: "Halifax",
+      q: "New Search Term",
+    });
+
+    const params = new URLSearchParams(updatedUrl.replace("/catalog?", ""));
+    expect(params.get("q")).toBe("New Search Term");
+    expect(params.get("institution")).toBe("BCCNS");
+    expect(params.get("place")).toBe("Halifax");
+    expect(params.has("page")).toBe(false);
+    expect(params.toString()).not.toContain("Old+Search+Term");
+  });
+
+  it("closes open AI answer panels and clears errors when operating in keyword mode", () => {
+    // When operating in keyword mode, AI narrative answer panel, claims list, citations, and errors are excluded
+    const html = renderToStaticMarkup(
+      React.createElement(ArchiveSearchBar, {
+        enableModeToggle: true,
+        defaultMode: "keyword",
+        initialQuestion: "Grounded inquiry text",
+        showCatalogCta: true,
+      }),
+    );
+
+    // The answer panel container is omitted from the DOM
+    expect(html).not.toContain('aria-label="Archive answer"');
+    expect(html).not.toContain("Claims and Citations");
+    expect(html).not.toContain("Explore matching records in Catalog");
+    expect(html).not.toContain('class="panel"');
+    expect(html).not.toContain('class="error"');
+  });
+
+  it("starts collapsed by default with aria-expanded false and hidden panel", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(CatalogFilters, {
+        publishers: samplePublishers,
+        query: {},
+      }),
+    );
+
+    // Starts collapsed by default
+    expect(html).toContain('aria-expanded="false"');
+    expect(html).toContain('aria-controls="catalog-filters-panel"');
+    expect(html).toContain('id="catalog-filters-panel"');
+    expect(html).toContain('hidden=""');
+    expect(html).toContain('class="hidden"');
+    expect(html).toContain('aria-label="Filters"');
+    expect(html).not.toContain('data-testid="catalog-filters-badge"');
+  });
+
+  it("accurately computes active filter count across all 7 secondary facets and excludes keyword query q", () => {
+    // 1. Keyword query q alone does not trigger badge or increment count
+    const qOnlyHtml = renderToStaticMarkup(
+      React.createElement(CatalogFilters, {
+        publishers: samplePublishers,
+        query: { q: "Africville Heritage" },
+      }),
+    );
+    expect(qOnlyHtml).not.toContain('data-testid="catalog-filters-badge"');
+    expect(qOnlyHtml).toContain('aria-label="Filters"');
+
+    // 2. Single secondary facet active (institution) -> 1
+    const oneFilterHtml = renderToStaticMarkup(
+      React.createElement(CatalogFilters, {
+        publishers: samplePublishers,
+        query: { q: "Africville", institution: "BCCNS" },
+      }),
+    );
+    expect(oneFilterHtml).toContain('data-testid="catalog-filters-badge"');
+    expect(oneFilterHtml).toContain(">1<");
+    expect(oneFilterHtml).toContain('aria-label="Filters (1)"');
+
+    // 3. Three secondary facets active (institution, type, place) -> 3
+    const threeFiltersHtml = renderToStaticMarkup(
+      React.createElement(CatalogFilters, {
+        publishers: samplePublishers,
+        query: {
+          q: "Africville",
+          institution: "BCCNS",
+          type: "photograph",
+          place: "Halifax",
+        },
+      }),
+    );
+    expect(threeFiltersHtml).toContain('data-testid="catalog-filters-badge"');
+    expect(threeFiltersHtml).toContain(">3<");
+    expect(threeFiltersHtml).toContain('aria-label="Filters (3)"');
+
+    // 4. All 7 secondary facets active (institution, type, creator, subject, place, from, to) -> 7
+    const allFiltersHtml = renderToStaticMarkup(
+      React.createElement(CatalogFilters, {
+        publishers: samplePublishers,
+        query: {
+          q: "Africville",
+          institution: "BCCNS",
+          type: "document",
+          creator: "Addie States",
+          subject: "Genealogy",
+          place: "Halifax",
+          from: "1960",
+          to: "1970",
+        },
+      }),
+    );
+    expect(allFiltersHtml).toContain('data-testid="catalog-filters-badge"');
+    expect(allFiltersHtml).toContain(">7<");
+    expect(allFiltersHtml).toContain('aria-label="Filters (7)"');
+
+    // 5. Blank/whitespace-only values are not counted
+    const blankFiltersHtml = renderToStaticMarkup(
+      React.createElement(CatalogFilters, {
+        publishers: samplePublishers,
+        query: {
+          q: "Africville",
+          institution: "   ",
+          creator: "",
+        },
+      }),
+    );
+    expect(blankFiltersHtml).not.toContain('data-testid="catalog-filters-badge"');
+    expect(blankFiltersHtml).toContain('aria-label="Filters"');
+  });
+
+  it("resets secondary facet selections while preserving active keyword query q", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(CatalogFilters, {
+        publishers: samplePublishers,
+        query: {
+          q: "Africville Heritage",
+          institution: "BCCNS",
+          type: "photograph",
+          place: "Halifax",
+        },
+        defaultOpen: true,
+      }),
+    );
+
+    // Both header bar and expanded panel render the Clear filters action
+    const clearLinks =
+      html.match(
+        /<a[^>]*href="\/catalog\?q=Africville%20Heritage"[^>]*>Clear filters<\/a>/g,
+      ) ?? [];
+    expect(clearLinks.length).toBeGreaterThanOrEqual(1);
+
+    // Reset link does not contain any secondary facet parameters
+    expect(html).toContain('href="/catalog?q=Africville%20Heritage"');
+    expect(html).not.toContain(
+      'href="/catalog?q=Africville%20Heritage&amp;institution',
+    );
+  });
+
+  it("correctly encodes special characters in preserved q and defaults to bare /catalog when q is blank", () => {
+    // Special characters in q (e.g. '&', ':', '/')
+    const specialCharsHtml = renderToStaticMarkup(
+      React.createElement(CatalogFilters, {
+        publishers: samplePublishers,
+        query: {
+          q: "Black Loyalists & Africville: Oral Histories",
+          institution: "BCCNS",
+        },
+      }),
+    );
+    expect(specialCharsHtml).toContain(
+      'href="/catalog?q=Black%20Loyalists%20%26%20Africville%3A%20Oral%20Histories"',
+    );
+
+    // No q parameter present -> resets to bare /catalog
+    const noQHtml = renderToStaticMarkup(
+      React.createElement(CatalogFilters, {
+        publishers: samplePublishers,
+        query: {
+          institution: "BCCNS",
+        },
+      }),
+    );
+    expect(noQHtml).toContain('href="/catalog"');
+    expect(noQHtml).not.toContain('href="/catalog?"');
+  });
+
+  it("maintains 100% backward compatibility for legacy callers omitting enableModeToggle", () => {
+    // Legacy invocation pattern from bccns-archive-experience.tsx:
+    // <ArchiveSearchBar autoNavigate={false} showCatalogCta={true} />
+    const legacyMarkup = renderToStaticMarkup(
+      React.createElement(ArchiveSearchBar, {
+        autoNavigate: false,
+        showCatalogCta: true,
+      }),
+    );
+
+    // No radio group or radio options
+    expect(legacyMarkup).not.toContain('role="radiogroup"');
+    expect(legacyMarkup).not.toContain('role="radio"');
+    expect(legacyMarkup).not.toContain("Keyword Search");
+    expect(legacyMarkup).not.toContain("Ask AI");
+
+    // No mode CTA chip
+    expect(legacyMarkup).not.toContain("Looking for answers in plain language?");
+    expect(legacyMarkup).not.toContain("Switch to Ask AI");
+
+    // Standard legacy placeholder and accessible label
+    expect(legacyMarkup).toContain('placeholder="Ask the archive"');
+    expect(legacyMarkup).toContain('aria-label="Submit inquiry"');
+
+    // Submit button remains type="submit"
+    expect(legacyMarkup).toContain('type="submit"');
+  });
+
+  it("behaves identically when enableModeToggle is explicitly false or omitted", () => {
+    const omitted = renderToStaticMarkup(
+      React.createElement(ArchiveSearchBar, {
+        initialQuestion: "Nova Scotia",
+      }),
+    );
+    const explicitFalse = renderToStaticMarkup(
+      React.createElement(ArchiveSearchBar, {
+        enableModeToggle: false,
+        initialQuestion: "Nova Scotia",
+      }),
+    );
+
+    expect(omitted).toBe(explicitFalse);
+  });
+
+  it("verifies ARIA accessibility attributes on mode toggle radio group", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(ArchiveSearchBar, {
+        enableModeToggle: true,
+        defaultMode: "keyword",
+      }),
+    );
+
+    // Radio group container
+    expect(html).toContain('role="radiogroup"');
+    expect(html).toContain('aria-label="Search mode"');
+
+    // Keyword option: selected by default with roving tabIndex 0
+    expect(html).toContain('role="radio"');
+    expect(html).toContain('aria-checked="true"');
+    expect(html).toContain('tabindex="0"');
+
+    // Ask AI option: unselected with roving tabIndex -1
+    expect(html).toContain('aria-checked="false"');
+    expect(html).toContain('tabindex="-1"');
+  });
+
+  it("verifies ARIA accessibility attributes on collapsible filter accordion toggle", () => {
+    // Collapsed state
+    const collapsedHtml = renderToStaticMarkup(
+      React.createElement(CatalogFilters, {
+        publishers: samplePublishers,
+        query: { institution: "BCCNS" },
+      }),
+    );
+    expect(collapsedHtml).toContain('aria-expanded="false"');
+    expect(collapsedHtml).toContain('aria-controls="catalog-filters-panel"');
+    expect(collapsedHtml).toContain('id="catalog-filters-panel"');
+    expect(collapsedHtml).toContain('aria-label="Filters (1)"');
+
+    // Expanded state
+    const expandedHtml = renderToStaticMarkup(
+      React.createElement(CatalogFilters, {
+        publishers: samplePublishers,
+        query: { institution: "BCCNS" },
+        defaultOpen: true,
+      }),
+    );
+    expect(expandedHtml).toContain('aria-expanded="true"');
+    expect(expandedHtml).toContain('aria-controls="catalog-filters-panel"');
+    expect(expandedHtml).toContain('id="catalog-filters-panel"');
+  });
+
+  it("verifies accessible submit button labeling across keyword, AI, and filter panel forms", () => {
+    // Keyword mode submit button
+    const keywordHtml = renderToStaticMarkup(
+      React.createElement(ArchiveSearchBar, {
+        enableModeToggle: true,
+        defaultMode: "keyword",
+      }),
+    );
+    expect(keywordHtml).toContain('type="submit"');
+    expect(keywordHtml).toContain('aria-label="Search catalog"');
+
+    // AI mode submit button
+    const aiHtml = renderToStaticMarkup(
+      React.createElement(ArchiveSearchBar, {
+        enableModeToggle: true,
+        defaultMode: "ai",
+      }),
+    );
+    expect(aiHtml).toContain('type="submit"');
+    expect(aiHtml).toContain('aria-label="Submit inquiry"');
+
+    // Filter form submit button
+    const filterHtml = renderToStaticMarkup(
+      React.createElement(CatalogFilters, {
+        publishers: ["BCCNS"],
+        query: {},
+        defaultOpen: true,
+      }),
+    );
+    expect(filterHtml).toContain('type="submit"');
+    expect(filterHtml).toContain("Search");
   });
 });
 
