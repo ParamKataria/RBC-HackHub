@@ -5,6 +5,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { BsStars } from "react-icons/bs";
 import * as THREE from "three";
+import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { Reflector } from "three/examples/jsm/objects/Reflector.js";
 import { archiveEffects, archiveGeometry } from "@/src/lib/archive";
 import { ArchiveSearchBar } from "@/src/components/archive/archive-search-bar";
@@ -876,11 +877,11 @@ export function BccnsArchiveExperience({
       prevKey !== "hall" ? collections.find((c) => c.key === prevKey) : null;
 
     const nextPortalLabel = nextColObj
-      ? `NEXT COLLECTION: ${nextColObj.title}`
-      : "RETURN TO CENTRE ROTUNDA";
+      ? `Enter ${nextColObj.title}`
+      : "Back to the gallery";
     const prevPortalLabel = prevColObj
-      ? `PREVIOUS COLLECTION: ${prevColObj.title}`
-      : "RETURN TO CENTRE ROTUNDA";
+      ? `Enter ${prevColObj.title}`
+      : "Back to the gallery";
 
     const e1 = archiveEffects.createPortalEnergyField(roomBuild.portal1Anchor, {
       color: portalTheme.portal1Color,
@@ -1187,6 +1188,36 @@ export function BccnsArchiveExperience({
     st.renderer = renderer;
     st.scene = scene;
     st.ambientLight = ambientLight;
+
+    /**
+     * SOURCE OF TRUTH KEYWORDS: OrbitControls, TOUCH.ROTATE, TOUCH.PAN, touchCamera, hallTravel
+     * WHAT: Reads one-finger touch from OrbitControls without taking over the museum camera.
+     * WHY: The rotunda and hallway already own the camera each frame, so touch only feeds their existing targets.
+     * WHERE: The animation loop below, while a finger is down or damping is still settling.
+     */
+    const touchCamera = new THREE.PerspectiveCamera();
+    touchCamera.position.set(0, 0, 5);
+    const orbitControls = new OrbitControls(touchCamera, renderer.domElement);
+    orbitControls.target.set(0, 0, 0);
+    orbitControls.enableDamping = true;
+    orbitControls.dampingFactor = 0.12;
+    orbitControls.enableZoom = false;
+    orbitControls.enablePan = true;
+    orbitControls.rotateSpeed = 0.85;
+    orbitControls.panSpeed = 0.8;
+    orbitControls.screenSpacePanning = true;
+    orbitControls.minPolarAngle = Math.PI / 2;
+    orbitControls.maxPolarAngle = Math.PI / 2;
+    orbitControls.mouseButtons = {
+      LEFT: null,
+      MIDDLE: null,
+      RIGHT: null,
+    };
+    orbitControls.touches = {
+      ONE: THREE.TOUCH.ROTATE,
+      TWO: THREE.TOUCH.PAN,
+    };
+    orbitControls.update();
     st.activeCamera = fallbackCamera;
     st.viewNode = fallbackView;
     let disposed = false;
@@ -1233,6 +1264,7 @@ export function BccnsArchiveExperience({
     // --- Wheel, Pointer, and Touch Rotation / Dolly ---
     let isDragging = false;
     let isScrubbing = false;
+    let activePointerType: PointerEvent["pointerType"] = "mouse";
     let pointerDownPos = { x: 0, y: 0 };
     let prevPointerX = 0;
     let prevPointerY = 0;
@@ -1302,7 +1334,8 @@ export function BccnsArchiveExperience({
       ) {
         return;
       }
-      isDragging = true;
+      isDragging = e.pointerType !== "touch";
+      activePointerType = e.pointerType;
       pointerDownPos = { x: e.clientX, y: e.clientY };
       prevPointerX = e.clientX;
       prevPointerY = e.clientY;
@@ -1321,7 +1354,12 @@ export function BccnsArchiveExperience({
       }
 
       if (cursorRef.current) {
-        cursorRef.current.style.transform = `translate3d(${e.clientX}px, ${e.clientY}px, 0)`;
+        const labeled = cursorRef.current.classList.contains("has-label");
+        const flip = labeled && e.clientX > window.innerWidth - 300;
+        cursorRef.current.classList.toggle("is-flip", flip);
+        cursorRef.current.style.transform = flip
+          ? `translate3d(${e.clientX - 16}px, ${e.clientY}px, 0) translateX(-100%)`
+          : `translate3d(${e.clientX}px, ${e.clientY}px, 0)`;
       }
 
       pointerNDC.x = (e.clientX / window.innerWidth) * 2 - 1;
@@ -1376,9 +1414,7 @@ export function BccnsArchiveExperience({
         const isInteractive = Boolean(cfg);
         document.body.style.cursor = isInteractive ? "pointer" : "default";
         setCursorInteractive(isInteractive);
-        setPortalPromptText(
-          cfg ? `ENTER COLLECTION: ${cfg.title} (${cfg.years})` : null,
-        );
+        setPortalPromptText(cfg ? `Enter ${cfg.title}` : null);
 
         hallTargetYaw = THREE.MathUtils.clamp(
           -pointerNDC.x * lookYawLimit,
@@ -1481,9 +1517,7 @@ export function BccnsArchiveExperience({
             .stationData as ArchiveStation;
           document.body.style.cursor = "pointer";
           setCursorInteractive(true);
-          setPortalPromptText(
-            `READ RECORD: ${station.dc_title} (${station.display_year})`,
-          );
+          setPortalPromptText(`Open ${station.dc_title}`);
         } else if (
           st.hoveredRoomPortalMesh &&
           st.hoveredRoomPortalMesh.userData.portalLabel
@@ -1524,7 +1558,38 @@ export function BccnsArchiveExperience({
         e.clientX - pointerDownPos.x,
         e.clientY - pointerDownPos.y,
       );
-      if (moveDist > 8) return;
+      if (moveDist > (activePointerType === "touch" ? 18 : 8)) return;
+
+      if (activePointerType === "touch" && st.activeCamera) {
+        pointerNDC.x = (e.clientX / window.innerWidth) * 2 - 1;
+        pointerNDC.y = -(e.clientY / window.innerHeight) * 2 + 1;
+        raycaster.setFromCamera(pointerNDC, st.activeCamera);
+        if (st.appMode === "hall") {
+          const hits = raycaster.intersectObjects(st.interactivePortalMeshes, false);
+          const hitMesh = hits[0]?.object as THREE.Mesh | undefined;
+          st.hoveredPortalCfg =
+            (hitMesh?.userData.portalConfig as PortalConfig | undefined) ?? null;
+        } else if (st.appMode === "museum" && st.currentRoomBuild) {
+          const picHits = raycaster.intersectObjects(
+            [
+              ...st.currentRoomBuild.pictureMeshes,
+              ...st.currentRoomBuild.stationLabelMeshes,
+            ],
+            false,
+          );
+          const validPicHit = picHits.find((hit) => hit.distance <= 16);
+          const hitMesh = validPicHit ? (validPicHit.object as THREE.Mesh) : null;
+          const linkedPicture = hitMesh?.userData.stationPicture as
+            | THREE.Mesh
+            | undefined;
+          st.hoveredPicMesh = linkedPicture ?? hitMesh;
+          const portalHits = raycaster.intersectObjects(st.roomPortalMeshes, false);
+          const validPortalHit = portalHits.find((hit) => hit.distance <= 20);
+          st.hoveredRoomPortalMesh = validPortalHit
+            ? (validPortalHit.object as THREE.Mesh)
+            : null;
+        }
+      }
 
       if (st.appMode === "hall" && st.hoveredPortalCfg) {
         const cameraDeg =
@@ -1604,6 +1669,39 @@ export function BccnsArchiveExperience({
 
       const dt = Math.min(clock.getDelta(), 0.1);
       const elapsed = clock.getElapsedTime();
+
+      orbitControls.enabled = st.arrivalHidden && !st.modalBlocking;
+      if (st.appMode === "museum") {
+        orbitControls.touches.ONE = THREE.TOUCH.PAN;
+        orbitControls.enableRotate = false;
+      } else {
+        orbitControls.touches.ONE = THREE.TOUCH.ROTATE;
+        orbitControls.enableRotate = true;
+      }
+      const azimuthBefore = orbitControls.getAzimuthalAngle();
+      const panBefore = orbitControls.target.x;
+      orbitControls.update();
+      const azimuthDelta = Math.atan2(
+        Math.sin(orbitControls.getAzimuthalAngle() - azimuthBefore),
+        Math.cos(orbitControls.getAzimuthalAngle() - azimuthBefore),
+      );
+      const panDelta = orbitControls.target.x - panBefore;
+      if (orbitControls.enabled && st.appMode === "hall" && Math.abs(azimuthDelta) > 1e-5) {
+        hallInputAt = performance.now();
+        st.hallLatch = null;
+        st.hallTravel -= azimuthDelta;
+        st.targetRotY -= azimuthDelta;
+      } else if (orbitControls.enabled && st.appMode === "museum" && Math.abs(panDelta) > 1e-5) {
+        roomInputAt = performance.now();
+        st.roomLatch = null;
+        const roomDelta = -panDelta * 6;
+        st.roomTravel += roomDelta;
+        st.roomTargetX = THREE.MathUtils.clamp(
+          st.roomTargetX + roomDelta,
+          st.roomMinX,
+          st.roomMaxX,
+        );
+      }
 
       if (st.appMode === "hall" && st.viewNode) {
         if (!st.arrivalHidden) {
@@ -1888,6 +1986,7 @@ export function BccnsArchiveExperience({
       window.removeEventListener("pointerup", onPointerUp);
       window.removeEventListener("pointermove", onPointerMove);
       window.removeEventListener("click", onClick);
+      orbitControls.dispose();
       window.removeEventListener("resize", onResize);
 
       const st = engineRef.current;
@@ -1992,9 +2091,13 @@ export function BccnsArchiveExperience({
       {/* Custom Hover Cursor */}
       <div
         ref={cursorRef}
-        className={`bccns-hover-cursor ${cursorInteractive ? "interactive" : ""}`}
+        className={`bccns-hover-cursor${cursorInteractive ? " interactive" : ""}${portalPromptText ? " has-label" : ""}`}
         aria-hidden="true"
-      />
+      >
+        {portalPromptText ? (
+          <span className="bccns-hover-label">{portalPromptText}</span>
+        ) : null}
+      </div>
 
       {/* Top Chrome: type only, sitting on the scene */}
       <header className="bccns-top-chrome">
@@ -2016,104 +2119,96 @@ export function BccnsArchiveExperience({
 
         <ImmersiveArchiveHUD view={settledNote?.view ?? null} glance={settledNote} />
 
-        <nav className="bccns-top-actions" aria-label="Archive navigation">
-          <button
-            type="button"
-            className={`bccns-text-link ${mapOpen ? "active" : ""}`}
-            id="collectionMapBtn"
-            onClick={() => setMapOpen((prev) => !prev)}
-          >
-            Map
-          </button>
-          {appMode === "museum" && (
-            <>
-              <button
-                type="button"
-                className={`bccns-text-link ${welcomeOpen ? "active" : ""}`}
-                id="toggleWelcomeCardBtn"
-                onClick={() => {
-                  if (!welcomeOpen) {
-                    engineRef.current.welcomeOpen = true;
-                    setWelcomeOpen(true);
-                    setVoiceOpen(false);
-                  } else {
-                    closeWelcomeCard();
-                  }
-                }}
-              >
-                Chapter
-              </button>
-              <button
-                type="button"
-                className={`bccns-text-link ${voiceOpen ? "active" : ""}`}
-                id="curatorialVoiceBtn"
-                onClick={() => {
-                  engineRef.current.welcomeOpen = false;
-                  setWelcomeOpen(false);
-                  setVoiceOpen((prev) => !prev);
-                }}
-              >
-                Voice
-              </button>
-            </>
-          )}
-          {appMode === "museum" && currentHeaderStation && (
+        {appMode === "museum" ? (
+          <nav className="bccns-gallery-nav" aria-label="Hallway">
             <button
               type="button"
-              className="bccns-text-link"
-              id="inspectCurrentStationBtn"
-              onClick={() =>
-                openRecordPanel(currentHeaderStation, activeStationIndex)
-              }
-            >
-              Record
-            </button>
-          )}
-          <button
-            type="button"
-            className="bccns-text-link"
-            id="centreMandateBtn"
-            onClick={() => setCentreModalOpen(true)}
-          >
-            The Centre
-          </button>
-          {appMode === "museum" ? (
-            <button
-              type="button"
-              className="bccns-text-link"
+              className="is-back"
               id="exitHallwayBtn"
+              aria-label="Back to the gallery"
               onClick={() => {
                 void returnToRotundaScene();
               }}
             >
-              Rotunda
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.75"
+                aria-hidden="true"
+              >
+                <line x1="19" y1="12" x2="5" y2="12" />
+                <polyline points="12 19 5 12 12 5" />
+              </svg>
+              Gallery
             </button>
-          ) : (
             <button
               type="button"
-              className="bccns-text-link"
+              className={mapOpen ? "active" : undefined}
+              id="collectionMapBtn"
+              onClick={() => setMapOpen((prev) => !prev)}
+            >
+              Map
+            </button>
+            <button
+              type="button"
+              id="centreMandateBtn"
+              onClick={() => setCentreModalOpen(true)}
+            >
+              About us
+            </button>
+          </nav>
+        ) : (
+          <nav className="bccns-gallery-nav" aria-label="Gallery">
+            <button
+              type="button"
+              className="is-back"
               id="exitRotundaBtn"
+              aria-label="Back to the main page"
               onClick={() => showGateView("arrival")}
             >
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.75"
+                aria-hidden="true"
+              >
+                <line x1="19" y1="12" x2="5" y2="12" />
+                <polyline points="12 19 5 12 12 5" />
+              </svg>
               Back
             </button>
-          )}
-        </nav>
+            <button
+              type="button"
+              className={mapOpen ? "active" : undefined}
+              id="collectionMapBtn"
+              onClick={() => setMapOpen((prev) => !prev)}
+            >
+              Map
+            </button>
+            <button
+              type="button"
+              id="centreMandateBtn"
+              onClick={() => setCentreModalOpen(true)}
+            >
+              About us
+            </button>
+          </nav>
+        )}
       </header>
 
-      {/* Hover / Action Prompt Pill */}
-      <div
-        className={`bccns-portal-prompt ${portalPromptText ? "visible" : ""}`}
-        id="portalPrompt"
-      >
-        {portalPromptText || "SELECT ARCH TO ENTER COLLECTION"}
-      </div>
+      {/* Hover label lives inside the cursor ring. */}
 
       {/* Bottom 6-Collection Rotunda Dial (Hall Mode) */}
       <section
         className={`bccns-hall-nav ${appMode === "museum" ? "hidden-nav" : ""}`}
         id="hallNav"
-        aria-label="Historical collections in the rotunda"
+        aria-label="Historical collections in the gallery"
       >
         <div className="bccns-hall-dial" id="rotundaDial">
           {archiveEffects.PORTAL_CONFIGS.map((cfg) => (
@@ -2558,8 +2653,8 @@ export function BccnsArchiveExperience({
             {institution.name}
           </h2>
           <div className="bccns-card-period">
-            BLACK CULTURAL SOCIETY OF NOVA SCOTIA (INCORPORATED{" "}
-            {institution.societyIncorporated})
+            Black Cultural Society of Nova Scotia, incorporated{" "}
+            {institution.societyIncorporated}
           </div>
           <p className="bccns-card-body">
             The Black Cultural Centre for Nova Scotia in Cherry Brook was
@@ -2855,21 +2950,25 @@ export function BccnsArchiveExperience({
                 <span>Cherry Brook, NS</span>
               </p>
               <div className="bccns-ledger-gap" aria-hidden="true" />
-              <Link href="/catalog" className="bccns-ledger-catalog">
-                Browse catalog
-                <svg
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.75"
-                  aria-hidden="true"
-                >
-                  <line x1="5" y1="12" x2="19" y2="12" />
-                  <polyline points="12 5 19 12 12 19" />
-                </svg>
-              </Link>
+              <div className="bccns-ledger-catalog">
+                <Link href="/catalog" className="bccns-catalog-link">
+                  <span>
+                    Browse catalog
+                    <svg
+                      width="16"
+                      height="16"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.75"
+                      aria-hidden="true"
+                    >
+                      <line x1="5" y1="12" x2="19" y2="12" />
+                      <polyline points="12 5 19 12 12 19" />
+                    </svg>
+                  </span>
+                </Link>
+              </div>
               <h1 id="bccns-arrival-title" className="bccns-ledger-title">
                 <span className="bccns-ledger-title-fit">
                   <span>The Black</span>
@@ -2886,11 +2985,16 @@ export function BccnsArchiveExperience({
                 Memory
               </p>
               <div className="bccns-ledger-copy" id="bccns-arrival-summary">
-                <p>
+                <p className="bccns-ledger-lead">
                   {institution.mandate} Ask a question in plain language. The
                   answer stays tied to records held by museums and archives, and
                   each one links back to the institution that keeps it.
                 </p>
+                <p className="bccns-ledger-lead-short">
+                  Ask a question. The answer links back to the record.
+                </p>
+              </div>
+              <div className="bccns-ledger-actions">
                 <div className="bccns-example-questions">
                   <button
                     type="button"
@@ -2915,15 +3019,14 @@ export function BccnsArchiveExperience({
                     What archives hold information about the No. 2 Construction Battalion?
                   </button>
                 </div>
-              </div>
-              <div className="bccns-ledger-actions">
+                <div className="bccns-ledger-action-row">
                 <button
                   type="button"
                   className="bccns-primary-enter-btn"
                   id="enterArchiveBtn"
                   onClick={() => showGateView("archive")}
                 >
-                  <span>Enter digital archive</span>
+                  <span>Enter gallery</span>
                   <svg
                     width="16"
                     height="16"
@@ -2946,6 +3049,7 @@ export function BccnsArchiveExperience({
                   Ask the archive
                   <BsStars className="bccns-ask-mark" aria-hidden="true" />
                 </button>
+                </div>
               </div>
             </div>
           </section>
@@ -2977,7 +3081,7 @@ export function BccnsArchiveExperience({
                     className="bccns-primary-enter-btn"
                     onClick={() => showGateView("archive")}
                   >
-                    Enter digital archive
+                    Enter gallery
                   </button>
                   <button
                     type="button"
