@@ -186,6 +186,7 @@ export type ArchiveGlance = z.infer<typeof archiveGlanceSchema>;
 
 export const archiveSearchBarPropsSchema = z.object({
   autoNavigate: z.boolean().optional(),
+  persistStorage: z.boolean().optional(),
   showCatalogCta: z.boolean().optional(),
   placeholder: z.string().optional(),
   claimLimit: z.number().int().positive().optional(),

@@ -35,6 +35,12 @@ export function ImmersiveArchiveHUD({
   const [closing, setClosing] = useState(false);
   const closingTargetRef = useRef<{ clearAnswers: boolean; glanceId: string | null } | null>(null);
 
+  /**
+   * SOURCE OF TRUTH KEYWORDS: askScopedArchiveInquiry, requestArchiveAnswer, AskView, ImmersiveArchiveHUD
+   * WHAT: Evaluates natural-language questions scoped to the visitor's active room or record.
+   * WHY: Obtains grounded answers limited to 2 claims without interrupting 3D rotunda navigation.
+   * WHERE: ImmersiveArchiveHUD top bar inquiry submission.
+   */
   const ask = async (rawQuestion: string) => {
     const parsedQuestion = askQuestionSchema.safeParse({ question: rawQuestion });
     const id = crypto.randomUUID();
@@ -65,6 +71,12 @@ export function ImmersiveArchiveHUD({
     }
   };
 
+  /**
+   * SOURCE OF TRUTH KEYWORDS: onSubmitImmersiveHUD, FormEvent, askQuestion, ImmersiveArchiveHUD
+   * WHAT: Handles the form submit event for the floating HUD search field.
+   * WHY: Triggers scoped question parsing and marks inquiry submission state.
+   * WHERE: ImmersiveArchiveHUD form element.
+   */
   const onSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const asked = question;
@@ -99,12 +111,24 @@ export function ImmersiveArchiveHUD({
   const shownAnswer =
     [...answers].reverse().find((item) => !item.pending && (item.result || item.error)) ?? null;
 
+  /**
+   * SOURCE OF TRUTH KEYWORDS: openGlanceDetails, heldGlance, glanceOpen, ImmersiveArchiveHUD
+   * WHAT: Expands the settled chapter or record glance note sheet.
+   * WHY: Allows visitors to inspect station details when approaching exhibits.
+   * WHERE: ImmersiveArchiveHUD info badge click and input focus handler.
+   */
   const openDetails = () => {
     if (!glance) return;
     setHeldGlance(glance);
     setGlanceOpen(true);
   };
 
+  /**
+   * SOURCE OF TRUTH KEYWORDS: clearCurrentHUDAnswer, resetGlanceState, closingTargetRef, ImmersiveArchiveHUD
+   * WHAT: Clears open inquiry answers or collapses the glance note panel.
+   * WHY: Provides a dismiss control to return the floating search bar to its compact resting state.
+   * WHERE: ImmersiveArchiveHUD dismiss button click listener.
+   */
   const clearCurrent = () => {
     if (closing) return;
     if (shownAnswer && glance) {

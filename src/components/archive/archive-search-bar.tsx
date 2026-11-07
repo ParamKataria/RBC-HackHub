@@ -58,6 +58,7 @@ export function sameFilters(filters: SearchQuery): boolean {
  */
 export function ArchiveSearchBar({
   autoNavigate = false,
+  persistStorage = false,
   showCatalogCta = false,
   placeholder = "Ask the archive",
   claimLimit,
@@ -72,7 +73,7 @@ export function ArchiveSearchBar({
   const [result, setResult] = useState<AskResponse | null>(null);
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
+    if (!persistStorage || typeof window === "undefined") return;
     const stored = window.sessionStorage.getItem(STORED_ANSWER_KEY);
     if (!stored) return;
     try {
@@ -86,14 +87,20 @@ export function ArchiveSearchBar({
     } catch {
       window.sessionStorage.removeItem(STORED_ANSWER_KEY);
     }
-  }, []);
+  }, [persistStorage]);
 
+  /**
+   * SOURCE OF TRUTH KEYWORDS: askArchiveInquiry, requestArchiveAnswer, persistStorage, askResult
+   * WHAT: Executes the plain-language archive inquiry against the backend service.
+   * WHY: Fetches grounded summaries and optionally syncs state with session storage and URL navigation.
+   * WHERE: Triggered by user form submission inside ArchiveSearchBar.
+   */
   const ask = async (rawQuestion: string) => {
     setPending(true);
     setError(null);
     try {
       const answer = await requestArchiveAnswer(rawQuestion);
-      if (typeof window !== "undefined") {
+      if (persistStorage && typeof window !== "undefined") {
         window.sessionStorage.setItem(STORED_ANSWER_KEY, JSON.stringify(answer));
       }
       setResult(answer);
@@ -109,13 +116,25 @@ export function ArchiveSearchBar({
     }
   };
 
+  /**
+   * SOURCE OF TRUTH KEYWORDS: onSubmitAskForm, FormEvent, rawQuestion, ArchiveSearchBar
+   * WHAT: Handles form submission event and initiates the archive inquiry.
+   * WHY: Prevents browser page reload and triggers asynchronous question evaluation.
+   * WHERE: ArchiveSearchBar form onSubmit listener.
+   */
   const onSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     void ask(question);
   };
 
+  /**
+   * SOURCE OF TRUTH KEYWORDS: clearArchiveAnswer, resetInquiry, persistStorage, dismissPanel
+   * WHAT: Clears the current inquiry result, error state, and cached storage answer.
+   * WHY: Allows visitors to collapse the citation panel and begin a fresh inquiry.
+   * WHERE: ArchiveSearchBar dismiss button and external onClear invocation.
+   */
   const clearAnswer = () => {
-    if (typeof window !== "undefined") {
+    if (persistStorage && typeof window !== "undefined") {
       window.sessionStorage.removeItem(STORED_ANSWER_KEY);
     }
     setResult(null);
