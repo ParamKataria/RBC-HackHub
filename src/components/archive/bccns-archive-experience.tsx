@@ -392,7 +392,7 @@ export function BccnsArchiveExperience({
     useState<CollectionKey>("slavery_and_halifax");
 
   const [roomProgress, setRoomProgress] = useState<number>(0);
-  const [activeStationIndex, setActiveStationIndex] = useState<number>(0);
+  const [, setActiveStationIndex] = useState<number>(0);
   const [activeRoomConfig, setActiveRoomConfig] =
     useState<RoomConfigMetrics | null>(null);
 
@@ -2037,8 +2037,6 @@ export function BccnsArchiveExperience({
   const activeCollection: ArchiveCollection =
     collections.find((c) => c.key === currentCollectionKey) ?? collections[0];
   const activeStations = activeCollection?.stations ?? [];
-  const currentHeaderStation =
-    activeStations[activeStationIndex] ?? activeStations[0];
   const copyRecordDeepLink = async () => {
     if (!selectedRecordModal || typeof window === "undefined") return;
     const url = new URL(window.location.href);
