@@ -1,0 +1,145 @@
+.ask {
+  overflow: hidden;
+  border: 1px solid hsl(var(--border));
+  border-radius: 28px;
+  background: hsl(var(--card));
+  color: hsl(var(--foreground));
+  transition: border-color 160ms ease;
+}
+
+.ask:focus-within {
+  border-color: hsl(var(--primary));
+  outline: 1px solid hsl(var(--ring));
+  outline-offset: 3px;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .ask:hover {
+    border-color: hsl(var(--primary));
+  }
+}
+
+.form {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-height: 64px;
+  padding: 0 24px;
+}
+
+.icon {
+  width: 18px;
+  height: 18px;
+  flex: none;
+  color: hsl(var(--primary));
+}
+
+.input {
+  min-width: 0;
+  flex: 1;
+  height: 40px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font-family: var(--font-bccns-serif), Georgia, serif;
+  font-size: 1.35rem;
+  line-height: 40px;
+  appearance: none;
+}
+
+.input::-webkit-search-decoration,
+.input::-webkit-search-cancel-button {
+  display: none;
+}
+
+.input:focus {
+  outline: none;
+}
+
+.input::placeholder {
+  color: hsl(var(--muted-foreground));
+}
+
+.dismiss,
+.status {
+  flex: none;
+  border: 0;
+  background: transparent;
+  color: hsl(var(--muted-foreground));
+  font-size: 0.875rem;
+}
+
+.dismiss {
+  cursor: pointer;
+  border-radius: 999px;
+  padding: 6px 12px;
+  transition: background-color 160ms ease, color 160ms ease;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .dismiss:hover {
+    background: hsl(var(--secondary));
+    color: hsl(var(--foreground));
+  }
+}
+
+.panel {
+  border-top: 1px solid hsl(var(--border));
+  padding: 16px 24px 20px;
+}
+
+.answer p {
+  margin: 0;
+  font-family: var(--font-bccns-serif), Georgia, serif;
+  font-size: 1.125rem;
+  line-height: 1.45;
+}
+
+.answer p + p {
+  margin-top: 10px;
+}
+
+.answer a,
+.sources a {
+  color: hsl(var(--primary));
+  text-underline-offset: 3px;
+}
+
+.answer a {
+  text-decoration: underline;
+}
+
+.sources {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 14px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.sources a {
+  display: inline-block;
+  width: fit-content;
+  max-width: 100%;
+  border-radius: 999px;
+  padding: 6px 12px;
+  text-decoration: none;
+  transition: background-color 160ms ease;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .sources a:hover {
+    background: hsl(var(--secondary));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ask,
+  .dismiss,
+  .sources a {
+    transition: none;
+  }
+}

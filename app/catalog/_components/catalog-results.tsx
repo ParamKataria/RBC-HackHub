@@ -2,15 +2,8 @@ import Link from "next/link";
 
 import { AskArchive } from "@/app/catalog/_components/ask-archive";
 import { CatalogFilters } from "@/app/catalog/_components/catalog-filters";
-import { Badge } from "@/components/ui/badge";
+import styles from "@/app/catalog/_components/catalog-results.module.css";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import { catalogService, searchService } from "@/lib/services";
 import {
   parseSearchParams,
@@ -133,12 +126,14 @@ export async function CatalogResults({
   const apiQuery = searchParamsToUrl(filters);
   const apiHref = apiQuery ? `/api/search?${apiQuery}` : "/api/search";
 
-  const totals = [
+  const headlineTotals = [
     ["Records", header.totals.records],
     ["Sources", header.totals.sources],
     ["People", header.totals.people],
     ["Places", header.totals.places],
     ["Subjects", header.totals.subjects],
+  ] as const;
+  const relationTotals = [
     ["Communities", header.totals.communities],
     ["Creator links", header.totals.recordPeople],
     ["Place links", header.totals.recordPlaces],
@@ -146,94 +141,110 @@ export async function CatalogResults({
   ] as const;
 
   return (
-    <div className="flex flex-col gap-6">
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight text-foreground">
+    <div className="flex flex-col gap-8">
+      <header>
+        <h1 className="font-serif text-4xl font-medium leading-none text-foreground">
           Black history catalog
         </h1>
-        <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
-          Ask the archive turns a question into the same filters as GET /api/search.
-          The answer cites record ids from that search.
+        <p className="mt-3 max-w-2xl text-sm leading-relaxed text-foreground/70">
+          Ask a question in plain language, or narrow the records by institution, type, place, and date.
         </p>
-      </div>
+      </header>
 
       <AskArchive />
 
-      <dl className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-        {totals.map(([label, value]) => (
-          <div key={label} className="rounded-lg border border-border bg-card p-3">
-            <dt className="text-xs text-muted-foreground">{label}</dt>
-            <dd className="text-2xl font-semibold text-card-foreground">
-              {value.toLocaleString()}
-            </dd>
-          </div>
-        ))}
-      </dl>
+      <section aria-label="Catalog totals" className={`${styles.totals} overflow-hidden`}>
+        <dl className="grid grid-cols-2 md:grid-cols-5">
+          {headlineTotals.map(([label, value]) => (
+            <div key={label} className={`${styles.stat} px-6 py-4`}>
+              <dt className="text-sm text-foreground/70">{label}</dt>
+              <dd className="mt-1 font-serif text-3xl leading-none text-card-foreground">
+                {value.toLocaleString()}
+              </dd>
+            </div>
+          ))}
+        </dl>
+        <p className="border-t border-border px-6 py-3 text-sm text-foreground/70">
+          {relationTotals
+            .map(([label, value]) => `${label} ${value.toLocaleString()}`)
+            .join(" · ")}
+        </p>
+      </section>
 
       <CatalogFilters publishers={header.publishers} query={filters} />
 
-      <p className="text-sm text-muted-foreground">
-        {search.count.toLocaleString()} matching records · page {page} of {pageCount}
-        {" · "}
-        <a href={apiHref} className="text-primary underline-offset-4 hover:underline">
-          {apiHref}
-        </a>
-      </p>
+      <div className="flex flex-wrap items-baseline justify-between gap-3 px-6 text-sm">
+        <p className="text-foreground">
+          {search.count.toLocaleString()} matching records
+        </p>
+        <p className="text-foreground/70">
+          Page {page} of {pageCount}
+          {" · "}
+          <a href={apiHref} className="text-primary underline-offset-4 hover:underline">
+            Open this search
+          </a>
+        </p>
+      </div>
 
-      <div className="flex flex-col gap-4">
+      <div className="flex flex-col gap-3">
         {records.map((record) => (
-          <Card key={record.id}>
-            <CardHeader>
-              <CardTitle>
-                <Link href={`/catalog/${record.id}`} className="hover:underline">
+          <article key={record.id} className={`${styles.record} px-6 py-5`}>
+            <div className="grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-6 gap-y-1">
+              <h2 className="min-w-0 font-serif text-2xl font-medium leading-tight">
+                <Link href={`/catalog/${record.id}`} className="hover:text-primary">
                   {record.dc_title}
                 </Link>
-              </CardTitle>
-              <CardDescription>{record.dc_publisher}</CardDescription>
-            </CardHeader>
-            <CardContent className="flex flex-col gap-3">
-              <div className="flex flex-wrap gap-2">
-                <Badge variant="secondary">{record.dc_type}</Badge>
-                <Badge variant="outline">{recordDateLabel(record)}</Badge>
-                <Badge variant="outline">
-                  {record.bccns_digitized ? "Digitized" : "Not digitized"}
-                </Badge>
-                {record.bccns_access_status ? (
-                  <Badge variant="outline">{record.bccns_access_status}</Badge>
-                ) : null}
-              </div>
-              {record.dc_description ? (
-                <p className="line-clamp-3 text-sm text-muted-foreground">
-                  {record.dc_description}
-                </p>
-              ) : null}
-              <a
-                href={record.dc_identifier}
-                target="_blank"
-                rel="noreferrer"
-                className="truncate text-sm text-primary underline-offset-4 hover:underline"
-              >
-                {record.dc_identifier}
-              </a>
-            </CardContent>
-          </Card>
+              </h2>
+              <p className="whitespace-nowrap text-right text-sm text-foreground/70">{recordDateLabel(record)}</p>
+            </div>
+            <p className="mt-2 text-sm text-foreground/70">
+              {record.dc_publisher}
+              {" · "}
+              {record.dc_type}
+              {" · "}
+              {record.bccns_digitized ? "Digitized" : "Not digitized"}
+              {record.bccns_access_status ? ` · ${record.bccns_access_status}` : ""}
+            </p>
+            {record.dc_description ? (
+              <p className="mt-3 line-clamp-2 max-w-3xl text-sm leading-relaxed text-foreground">
+                {record.dc_description}
+              </p>
+            ) : null}
+            <a
+              href={record.dc_identifier}
+              target="_blank"
+              rel="noreferrer"
+              className="mt-3 inline-block text-sm text-primary underline-offset-4 hover:underline"
+            >
+              Source
+            </a>
+          </article>
         ))}
         {records.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No records match this search.</p>
+          <p className={`${styles.empty} px-6 py-8 text-sm text-foreground/70`}>
+            No records match this search.
+          </p>
         ) : null}
       </div>
 
-      <div className="flex items-center gap-3">
-        {page > 1 ? (
-          <Button variant="outline" asChild>
-            <Link href={catalogPageHref(filters, page - 1)}>Previous</Link>
-          </Button>
-        ) : null}
-        {page < pageCount ? (
-          <Button variant="outline" asChild>
-            <Link href={catalogPageHref(filters, page + 1)}>Next</Link>
-          </Button>
-        ) : null}
+      <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3">
+        <div>
+          {page > 1 ? (
+            <Button variant="outline" className={`${styles.pageLink} shadow-none`} asChild>
+              <Link href={catalogPageHref(filters, page - 1)}>Previous</Link>
+            </Button>
+          ) : null}
+        </div>
+        <p className="text-center text-sm text-foreground/70">
+          Page {page} of {pageCount}
+        </p>
+        <div className="justify-self-end">
+          {page < pageCount ? (
+            <Button variant="outline" className={`${styles.pageLink} shadow-none`} asChild>
+              <Link href={catalogPageHref(filters, page + 1)}>Next</Link>
+            </Button>
+          ) : null}
+        </div>
       </div>
     </div>
   );
