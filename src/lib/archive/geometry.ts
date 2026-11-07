@@ -1483,9 +1483,9 @@ export async function buildMuseumRoomScene({
   const labelGeom = new THREE.PlaneGeometry(3.8, 0.96);
   labelGeom.rotateY(-Math.PI / 2);
 
-  const nextLabel = nextColObj ? nextColObj.title : "Centre Rotunda";
+  const nextLabel = nextColObj ? nextColObj.title : "Gallery";
   const nextYears = nextColObj ? `NEXT · ${nextColObj.period}` : "RETURN · ALL 6 HALLS";
-  const prevLabel = prevColObj ? prevColObj.title : "Centre Rotunda";
+  const prevLabel = prevColObj ? prevColObj.title : "Gallery";
   const prevYears = prevColObj ? `PREVIOUS · ${prevColObj.period}` : "RETURN · ALL 6 HALLS";
 
   const text1 = new THREE.Mesh(
