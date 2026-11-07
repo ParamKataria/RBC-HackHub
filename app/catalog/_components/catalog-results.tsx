@@ -45,9 +45,9 @@ function catalogPageHref(filters: SearchQuery, page: number): string {
 }
 
 /**
- * SOURCE OF TRUTH KEYWORDS: CatalogResults, CatalogPageProps, CatalogRecord, PostgresTotals, searchParams, CatalogResultsView
- * WHAT: Renders catalog totals, filters, and one page of records with List View and Connection Graph toggle.
- * WHY: Connects the server-side Supabase full-text search results to the interactive catalog list and graph views.
+ * SOURCE OF TRUTH KEYWORDS: CatalogResults, CatalogPageProps, CatalogRecord, PostgresTotals, digitalArchiveHeader, CatalogResultsView
+ * WHAT: Renders the branded catalog header, search bar, totals, filters, and one page of records with List View and Connection Graph toggle.
+ * WHY: Connects server-side Supabase search results with institutional branding and interactive catalog exploration.
  * WHERE: app/catalog/page.tsx inside Suspense.
  */
 export async function CatalogResults({ searchParams }: CatalogPageProps) {
@@ -128,11 +128,14 @@ export async function CatalogResults({ searchParams }: CatalogPageProps) {
   return (
     <div className="flex flex-col gap-8">
       <header>
-        <h1 className="font-serif text-4xl font-medium leading-none text-foreground">
-          Black history catalog
+        <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+          Black Cultural Centre for Nova Scotia
+        </p>
+        <h1 className="font-serif text-4xl font-medium tracking-tight text-foreground sm:text-5xl">
+          Digital Archive Catalog
         </h1>
-        <p className="mt-3 max-w-2xl text-sm leading-relaxed text-foreground/70">
-          Ask a question in plain language, or narrow the records by institution, type, place, and date.
+        <p className="mt-1 max-w-2xl text-sm leading-relaxed text-foreground/75 sm:text-base">
+          Explore primary records, oral histories, and community lineages, or switch to Ask AI for grounded historical inquiries.
         </p>
       </header>
 

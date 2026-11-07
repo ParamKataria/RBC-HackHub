@@ -14,6 +14,8 @@ import {
   createInMemoryModelAdapter,
 } from "@/lib/services/model-adapter";
 import { CatalogFilters } from "@/app/catalog/_components/catalog-filters";
+import { CatalogResults } from "@/app/catalog/_components/catalog-results";
+import CatalogPage from "@/app/catalog/page";
 import {
   ArchiveSearchBar,
   clearCatalogSearchParams,
@@ -21,6 +23,7 @@ import {
   handleRadioArrowNavigation,
   mergeCatalogSearchParams,
 } from "@/src/components/archive";
+import { catalogService, searchService } from "@/lib/services";
 import {
   archiveSearchBarPropsSchema,
   askResponseSchema,
@@ -1643,6 +1646,104 @@ describe("Ticket 04: Comprehensive Verification and Accessibility Test Suite", (
     );
     expect(filterHtml).toContain('type="submit"');
     expect(filterHtml).toContain("Search");
+  });
+});
+
+/**
+ * SOURCE OF TRUTH KEYWORDS: catalogHeaderAndNavPolishTest, CatalogPage, CatalogResults, stickyNavBlur, bccnsCatalogBrand, digitalArchiveCatalogHeader
+ * WHAT: Unit and contract tests verifying sticky navigation styling, brand typography, and upgraded catalog header hierarchy.
+ * WHY: Proves Ticket 01 acceptance criteria: sticky backdrop blur navbar, BCCNS Catalog branding, institutional eyebrow, serif display title, and descriptive subtitle.
+ * WHERE: tests/ask-search-verification.test.ts (Ticket 01 verification).
+ */
+describe("Catalog Navigation Bar and Header Polish", () => {
+  const verificationRecord: CatalogRecord = {
+    id: "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+    dc_title: "Preston Community Ledger",
+    dc_identifier: "BCCNS-1972-042",
+    dc_publisher: "Black Cultural Centre for Nova Scotia",
+    dc_source: "BCCNS Physical Archives",
+    dc_type: "document",
+    dc_description: "Community record from Preston, Nova Scotia.",
+    dc_creator: "Community Historian",
+    dc_subject: ["Preston", "Community History"],
+    dc_date: "1972",
+    date_text: "circa 1972",
+    dcterms_spatial: "Preston",
+    dcterms_temporal: "20th Century",
+    dc_rights: "In Copyright",
+    dcterms_access_rights: "Open access",
+    dcterms_provenance: "BCCNS Collection",
+    bccns_community: ["Preston"],
+    bccns_access_status: "available",
+    bccns_digitized: true,
+  };
+
+  it("renders sticky navigation bar with backdrop blur and BCCNS Catalog branding in CatalogPage", () => {
+    const pageHtml = renderToStaticMarkup(
+      React.createElement(CatalogPage, {
+        searchParams: Promise.resolve({}),
+      }),
+    );
+
+    // Sticky nav container with backdrop blur and subtle theme border
+    expect(pageHtml).toContain("sticky top-0 z-40 border-b border-border/80 bg-background/80 backdrop-blur-md");
+
+    // Brand link with serif display and clean tracking
+    expect(pageHtml).toContain('href="/catalog"');
+    expect(pageHtml).toContain("BCCNS Catalog");
+    expect(pageHtml).toContain("font-serif text-xl tracking-tight text-foreground transition-colors hover:text-foreground/80");
+
+    // Home link with transition tokens
+    expect(pageHtml).toContain('href="/"');
+    expect(pageHtml).toContain("text-muted-foreground transition-colors hover:text-foreground");
+  });
+
+  it("renders institutional eyebrow, serif display title, and descriptive subtitle in CatalogResults header", async () => {
+    vi.spyOn(catalogService, "getCatalogHeader").mockResolvedValue({
+      totals: {
+        records: 42,
+        sources: 5,
+        people: 12,
+        places: 8,
+        subjects: 15,
+        communities: 4,
+        recordPeople: 18,
+        recordPlaces: 14,
+        recordSubjects: 22,
+      },
+      publishers: ["Black Cultural Centre for Nova Scotia"],
+    });
+
+    vi.spyOn(searchService, "searchRecords").mockResolvedValue({
+      count: 1,
+      filters: {},
+      results: [verificationRecord],
+    });
+
+    const resultsElement = await CatalogResults({
+      searchParams: Promise.resolve({}),
+    });
+    const resultsHtml = renderToStaticMarkup(resultsElement);
+
+    // Institutional eyebrow kicker
+    expect(resultsHtml).toContain("Black Cultural Centre for Nova Scotia");
+    expect(resultsHtml).toContain("text-xs font-semibold uppercase tracking-widest text-muted-foreground");
+
+    // Display serif main title
+    expect(resultsHtml).toContain("Digital Archive Catalog");
+    expect(resultsHtml).toContain("font-serif text-4xl font-medium tracking-tight text-foreground sm:text-5xl");
+
+    // Informative descriptive subtitle
+    expect(resultsHtml).toContain(
+      "Explore primary records, oral histories, and community lineages, or switch to Ask AI for grounded historical inquiries.",
+    );
+    expect(resultsHtml).toContain("mt-1 max-w-2xl text-sm leading-relaxed text-foreground/75 sm:text-base");
+
+    // Ensure deprecated copy is completely removed
+    expect(resultsHtml).not.toContain("Black history catalog");
+    expect(resultsHtml).not.toContain(
+      "Ask a question in plain language, or narrow the records by institution, type, place, and date.",
+    );
   });
 });
 
