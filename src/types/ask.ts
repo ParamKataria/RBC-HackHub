@@ -40,11 +40,25 @@ export const askCitationSchema = z.object({
 
 export type AskCitation = z.infer<typeof askCitationSchema>;
 
+/**
+ * SOURCE OF TRUTH KEYWORDS: askClaimSchema, AskClaim, citedRecordIds, GroundedClaim, InquiryEngine
+ * WHAT: Validated factual claim linking narrative text to verified catalog record IDs.
+ * WHY: Eliminates client-side regex parsing by preserving structured claims directly from the inquiry engine.
+ * WHERE: src/types/ask.ts, lib/services/ask.ts, and src/components/archive/archive-answer.tsx.
+ */
+export const askClaimSchema = z.object({
+  text: z.string(),
+  citedRecordIds: z.array(z.string()),
+});
+
+export type AskClaim = z.infer<typeof askClaimSchema>;
+
 export const askResponseSchema = z.object({
   question: z.string(),
   filters: searchQuerySchema,
   count: z.number().int().nonnegative(),
-  summary: z.string(),
+  claims: z.array(askClaimSchema).default([]),
+  summary: z.string().default(""),
   citations: z.array(askCitationSchema),
 });
 

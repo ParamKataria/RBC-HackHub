@@ -6,15 +6,19 @@
  */
 import { describe, expect, it } from "vitest";
 
-import { claimLines } from "@/lib/services/ask";
+import { claimLines, groundClaims } from "@/lib/services/ask";
 import {
   InMemoryModelAdapter,
   createInMemoryModelAdapter,
 } from "@/lib/services/model-adapter";
-import type {
-  AskModelClaim,
-  CatalogRecord,
-  LanguageModelPort,
+import {
+  askResponseSchema,
+  noArchiveSourceMessage,
+  noDirectAnswerMessage,
+  type AskClaim,
+  type AskModelClaim,
+  type CatalogRecord,
+  type LanguageModelPort,
 } from "@/src/types";
 
 describe("LanguageModelPort & InMemoryModelAdapter", () => {
@@ -183,5 +187,110 @@ describe("LanguageModelPort & InMemoryModelAdapter", () => {
     expect(filteredLines[0]).toBe(
       `Grounded claim citing real catalog record. [${sampleRecordId}]`,
     );
+  });
+
+  it("grounds claims and strips fabricated IDs while preserving valid candidate IDs", () => {
+    const claimsWithHallucination: AskModelClaim[] = [
+      {
+        text: "Addie States documented the Africville church in 1960.",
+        recordIds: [sampleRecordId, fakeRecordId],
+      },
+    ];
+
+    const grounded = groundClaims(claimsWithHallucination, [sampleCatalogRecord]);
+
+    expect(grounded).toHaveLength(1);
+    expect(grounded[0].text).toBe(
+      "Addie States documented the Africville church in 1960.",
+    );
+    // Verified recordId is preserved, fabricated ID is stripped
+    expect(grounded[0].citedRecordIds).toEqual([sampleRecordId]);
+  });
+
+  it("prunes claims that cite zero valid records", () => {
+    const claimsWithZeroValid: AskModelClaim[] = [
+      {
+        text: "Fabricated claim citing non-existent records.",
+        recordIds: [fakeRecordId, "88888888-4444-4444-4444-123456789012"],
+      },
+      {
+        text: "Empty citation claim.",
+        recordIds: [],
+      },
+    ];
+
+    const grounded: AskClaim[] = groundClaims(claimsWithZeroValid, [sampleCatalogRecord]);
+    expect(grounded).toHaveLength(0);
+
+    // When all drafted claims are ungrounded, fallback response provides canonical message
+    const fallbackClaim: AskClaim =
+      grounded.length > 0
+        ? grounded[0]
+        : { text: noDirectAnswerMessage, citedRecordIds: [] };
+    expect(fallbackClaim.text).toBe(noDirectAnswerMessage);
+    expect(fallbackClaim.citedRecordIds).toEqual([]);
+  });
+
+  it("sanitizes bracketed IDs from narrative text so raw UUIDs do not leak into claim.text", () => {
+    const claimWithEmbeddedIds: AskModelClaim[] = [
+      {
+        text: `According to record [${sampleRecordId}], the church was a community cornerstone.`,
+        recordIds: [sampleRecordId],
+      },
+    ];
+
+    const grounded = groundClaims(claimWithEmbeddedIds, [sampleCatalogRecord]);
+    expect(grounded).toHaveLength(1);
+    expect(grounded[0].text).toBe(
+      "According to record , the church was a community cornerstone.",
+    );
+    expect(grounded[0].citedRecordIds).toEqual([sampleRecordId]);
+  });
+
+  it("validates askResponseSchema with structured claims collection and backward-compatible summary", () => {
+    const validResponse = {
+      question: "Who founded the church in Africville?",
+      filters: { q: "Africville", publisher: "", page: 1 },
+      count: 1,
+      claims: [
+        {
+          text: "Addie States led church documentation.",
+          citedRecordIds: [sampleRecordId],
+        },
+      ],
+      summary: "Summary narrative text.",
+      citations: [
+        {
+          id: sampleRecordId,
+          title: "Africville Church Records",
+        },
+      ],
+    };
+
+    const parsed = askResponseSchema.parse(validResponse);
+    expect(parsed.claims).toHaveLength(1);
+    expect(parsed.claims[0].citedRecordIds).toEqual([sampleRecordId]);
+    expect(parsed.summary).toBe("Summary narrative text.");
+
+    // Parses cleanly without summary (optional field with default fallback)
+    const withoutSummary = {
+      ...validResponse,
+      summary: undefined,
+    };
+    const parsedWithoutSummary = askResponseSchema.parse(withoutSummary);
+    expect(parsedWithoutSummary.claims).toHaveLength(1);
+    expect(parsedWithoutSummary.summary).toBe("");
+
+    // Defaults claims to empty array when omitted from legacy payload
+    const legacyPayload = {
+      question: "Legacy question",
+      filters: { q: "", publisher: "", page: 1 },
+      count: 0,
+      summary: noArchiveSourceMessage,
+      citations: [],
+    };
+    const parsedLegacy = askResponseSchema.parse(legacyPayload);
+    expect(parsedLegacy.claims).toEqual([]);
+    expect(parsedLegacy.summary).toBe(noArchiveSourceMessage);
   });
 });
