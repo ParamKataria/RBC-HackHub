@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>BCCNS Knowledge Hub — RBC Hackathon</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,500;0,600;1,500&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --paper: #fff5f4;
+      --surface: #f6ebea;
+      --ink: #221717;
+      --muted: rgba(34, 23, 23, 0.72);
+      --brick: #7f2626;
+      --line: rgba(34, 23, 23, 0.16);
+      --move: 420ms;
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      height: 100%;
+      background: #1a1210;
+      color: var(--ink);
+      font-family: Inter, system-ui, sans-serif;
+    }
+    #viewport {
+      height: 100%;
+      display: grid;
+      place-items: center;
+    }
+    .stage {
+      width: 1280px;
+      height: 720px;
+      background: var(--paper);
+      position: relative;
+      overflow: hidden;
+      transform-origin: center center;
+    }
+    .progress {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 3px;
+      background: rgba(127, 38, 38, 0.12);
+      z-index: 5;
+    }
+    .progress i {
+      display: block;
+      height: 100%;
+      width: 0;
+      background: var(--brick);
+      transition: width var(--move) ease;
+    }
+    .slide {
+      position: absolute;
+      inset: 0;
+      padding: 52px 72px 36px;
+      display: flex;
+      flex-direction: column;
+      opacity: 0;
+      visibility: hidden;
+      transform: translateY(22px);
+      transition: opacity var(--move) ease, transform var(--move) ease, visibility var(--move);
+      pointer-events: none;
+    }
+    .slide.active {
+      opacity: 1;
+      visibility: visible;
+      transform: none;
+      z-index: 2;
+      pointer-events: auto;
+    }
+    .slide.exit {
+      opacity: 0;
+      visibility: visible;
+      transform: translateY(-16px);
+      z-index: 1;
+    }
+    .kicker {
+      font-size: 12px;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--brick);
+      font-weight: 600;
+      margin: 0 0 16px;
+    }
+    h1, h2 {
+      font-family: "Cormorant Garamond", Georgia, serif;
+      font-weight: 500;
+      letter-spacing: -0.02em;
+      margin: 0;
+      line-height: 0.98;
+      font-variant-numeric: lining-nums;
+    }
+    h1 { font-size: 72px; max-width: 16ch; }
+    h2 { font-size: 46px; max-width: 22ch; }
+    .lede {
+      font-family: "Cormorant Garamond", Georgia, serif;
+      font-size: 28px;
+      line-height: 1.25;
+      max-width: 34ch;
+      margin: 22px 0 0;
+      font-variant-numeric: lining-nums;
+    }
+    p { margin: 0; }
+    .body {
+      font-size: 17px;
+      line-height: 1.45;
+      max-width: 62ch;
+    }
+    .muted { color: var(--muted); }
+    .foot {
+      margin-top: auto;
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 24px;
+      border-top: 1px solid var(--line);
+      padding-top: 14px;
+      font-size: 13px;
+      letter-spacing: 0.04em;
+      color: var(--muted);
+    }
+    .split {
+      display: grid;
+      grid-template-columns: 1.05fr 0.95fr;
+      gap: 40px;
+      margin-top: 28px;
+      align-items: start;
+    }
+    .panel {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      padding: 22px 24px;
+    }
+    .panel h3, .place h3 {
+      font-family: "Cormorant Garamond", Georgia, serif;
+      font-size: 28px;
+      font-weight: 500;
+      margin: 0 0 8px;
+      line-height: 1.05;
+    }
+    .chapters { margin-top: 8px; }
+    .chapter {
+      display: grid;
+      grid-template-columns: 14px 1.3fr 1.15fr 128px;
+      gap: 14px;
+      align-items: baseline;
+      padding: 8px 0;
+      border-top: 1px solid var(--line);
+      font-size: 16px;
+    }
+    .chapter strong {
+      font-family: "Cormorant Garamond", Georgia, serif;
+      font-size: 22px;
+      font-weight: 500;
+    }
+    .swatch { width: 10px; height: 10px; }
+    .places {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 18px;
+      margin-top: 28px;
+    }
+    .place {
+      border-top: 2px solid var(--brick);
+      padding-top: 14px;
+      min-height: 210px;
+    }
+    .place span, .step span, .criteria span {
+      display: block;
+      font-size: 12px;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--brick);
+      font-weight: 600;
+      margin-bottom: 8px;
+    }
+    .place p, .step p { font-size: 16px; line-height: 1.4; }
+    .steps {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 18px;
+      margin-top: 32px;
+    }
+    .step { border-top: 2px solid var(--brick); padding-top: 14px; }
+    .step strong {
+      display: block;
+      font-family: "Cormorant Garamond", Georgia, serif;
+      font-size: 28px;
+      font-weight: 500;
+      margin-bottom: 8px;
+    }
+    .quote {
+      font-family: "Cormorant Garamond", Georgia, serif;
+      font-size: 32px;
+      line-height: 1.2;
+      margin-top: 26px;
+      max-width: 28ch;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 22px;
+      font-size: 16px;
+    }
+    th, td {
+      text-align: left;
+      padding: 9px 0;
+      border-bottom: 1px solid var(--line);
+      vertical-align: baseline;
+    }
+    th {
+      font-size: 11px;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--muted);
+      font-weight: 600;
+    }
+    td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+    .criteria {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 28px;
+      margin-top: 36px;
+    }
+    .slide.close .lede { margin-bottom: 8px; }
+    .slide.close .criteria { margin-top: 28px; }
+    .slide.close .criteria p {
+      font-family: "Cormorant Garamond", Georgia, serif;
+      font-size: 26px;
+      line-height: 1.2;
+    }
+    .criteria div { border-top: 1px solid var(--line); padding-top: 14px; }
+    .criteria p { font-size: 16px; line-height: 1.4; }
+    .title-slide { padding-top: 64px; }
+    #notes {
+      position: fixed;
+      left: 16px;
+      right: 16px;
+      bottom: 16px;
+      background: #221717;
+      color: #fff5f4;
+      padding: 16px 20px;
+      font-size: 15px;
+      line-height: 1.45;
+      display: none;
+      max-width: 920px;
+      z-index: 3;
+    }
+    #notes.show { display: block; }
+    #help {
+      position: fixed;
+      top: 12px;
+      right: 16px;
+      color: rgba(255, 245, 244, 0.55);
+      font-size: 12px;
+      letter-spacing: 0.04em;
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .slide, .slide.exit, .slide.active, .progress i { transition: none; transform: none; }
+    }
+  </style>
+</head>
+<body>
+  <div id="help">← → to move · N notes · F fullscreen</div>
+  <div id="viewport">
+    <div class="stage" id="stage">
+      <div class="progress" aria-hidden="true"><i id="bar"></i></div>
+
+      <section class="slide title-slide active" data-part="Intro" data-note="Open on the Centre. Say you built a place to learn the history, and that questions are answered from the records in front of the visitor.">
+        <p class="kicker">Intro · RBC Hackathon</p>
+        <h1>Six doors into Black history.</h1>
+        <p class="lede">Black Cultural Centre for Nova Scotia. Cherry Brook. Established 1983.</p>
+        <div class="foot"><span>Problem Statement 1 · 10 minutes</span><span>01</span></div>
+      </section>
+
+      <section class="slide" data-part="Problem" data-note="The history exists. The difficulty is knowing which institution holds it, and whether a curious person can start without that knowledge.">
+        <p class="kicker">Problem</p>
+        <h2>Black history in Canada is held in many places. A visitor should not have to know which one to open first.</h2>
+        <div class="split">
+          <p class="body">Museums, archives, libraries, universities, governments, and community collections each keep their own catalogues, words, and access rules. Useful material sits in finding aids, PDFs, websites, and local databases. Much of it is only partly digitized.</p>
+          <div class="panel">
+            <h3>What BCCNS asked for</h3>
+            <p class="body">A trusted discovery layer. It should point to the institution that holds the record, keep that institution’s ownership, and make the fragments easier to find and connect. A small organization has to be able to keep it going.</p>
+          </div>
+        </div>
+        <div class="foot"><span>There is no single catalogue today</span><span>02</span></div>
+      </section>
+
+      <section class="slide" data-part="Problem" data-note="A search box is the second tool, not the first room. People who want to learn arrive before they have a name, a year, or an institution.">
+        <p class="kicker">Problem</p>
+        <h2>A catalogue asks you to arrive with a query. Most people arrive wanting to learn.</h2>
+        <div class="split">
+          <p class="body">Someone interested in African Nova Scotian history may not know to start at Nova Scotia Archives, the Black Loyalist Heritage Centre, Library and Archives Canada, or the Centre’s own site. A results list helps once the name, the place, or the year is already in mind.</p>
+          <div class="panel">
+            <h3>The first screen had to teach</h3>
+            <p class="body">We wanted an informational visit: chapters you can walk, records you can read, and a question you can ask about the place you have stopped. The catalogue stays available when a query is the right tool.</p>
+          </div>
+        </div>
+        <div class="foot"><span>An experience for anyone who wants to learn</span><span>03</span></div>
+      </section>
+
+      <section class="slide" data-part="Solution" data-note="Name two doors out loud, then say the question field is in the hall the whole time. The next two slides are the behavior judges should remember.">
+        <p class="kicker">Solution</p>
+        <h2>Six chapters. The question travels with you.</h2>
+        <div class="chapters">
+          <div class="chapter"><i class="swatch" style="background:#7f2626"></i><strong>Slavery and the founding of Halifax</strong><span>Annapolis Royal, Shelburne, Birchtown, Preston</span><span>1749 – 1834</span></div>
+          <div class="chapter"><i class="swatch" style="background:#a85c1a"></i><strong>Black Loyalists</strong><span>Birchtown, Shelburne, Preston</span><span>1783 – 1792</span></div>
+          <div class="chapter"><i class="swatch" style="background:#3a552e"></i><strong>The Maroons</strong><span>Halifax and Preston</span><span>1796 – 1800</span></div>
+          <div class="chapter"><i class="swatch" style="background:#a67224"></i><strong>The Refugees</strong><span>Cherry Brook, Preston, Beechville</span><span>1813 – 1854</span></div>
+          <div class="chapter"><i class="swatch" style="background:#a85c1a"></i><strong>Caribbean migrants</strong><span>Whitney Pier, Glace Bay, Halifax</span><span>1899 – 1939</span></div>
+          <div class="chapter"><i class="swatch" style="background:#3a552e"></i><strong>No. 2 Construction Battalion</strong><span>Pictou, Truro, France</span><span>1916 – 1920</span></div>
+        </div>
+        <div class="foot"><span>Turn to a door, enter the gallery, stop on a record</span><span>04</span></div>
+      </section>
+
+      <section class="slide" data-part="Solution" data-note="This is the interaction. Demonstrate it if the app is up: settle on Black Loyalists and read the note, then walk to one picture and watch the note change. A question from that spot is about that spot.">
+        <p class="kicker">Solution · where you are looking</p>
+        <h2>The page offers the record you have stopped on.</h2>
+        <div class="places">
+          <div class="place">
+            <span>Still moving</span>
+            <h3>Nothing yet</h3>
+            <p>While the hall is turning, or the gallery is still walking, the note stays closed. Information appears once the view has settled.</p>
+          </div>
+          <div class="place">
+            <span>A chapter door</span>
+            <h3>That gallery</h3>
+            <p>Two sentences from the chapter you are facing. A question from here is sent with that gallery, and the answer is drawn from those records.</p>
+          </div>
+          <div class="place">
+            <span>A picture on the wall</span>
+            <h3>That record</h3>
+            <p>The note becomes the description of the record in front of you. A question from here is sent with that record’s id.</p>
+          </div>
+        </div>
+        <div class="foot"><span>The browser sends where you are. The server loads the text.</span><span>05</span></div>
+      </section>
+
+      <section class="slide" data-part="Solution" data-note="Read the quoted sentence. Then say a date is repeated only when that record writes it, and a community is never guessed. If you demo, ask one question the wall can answer and one it cannot.">
+        <p class="kicker">Solution · what it is allowed to say</p>
+        <h2>A question is answered only when the sources answer it.</h2>
+        <p class="quote">“No records in the archive match this question.”</p>
+        <div class="steps">
+          <div class="step"><span>01</span><strong>Search</strong><p>The words become filters against the catalog: institution, type, subject, place, keywords.</p></div>
+          <div class="step"><span>02</span><strong>Where you are</strong><p>The gallery or the record in view is included, because that is what you are looking at.</p></div>
+          <div class="step"><span>03</span><strong>Sentences</strong><p>Each sentence must cite record ids from that set. At most four. A sentence with an unknown id is dropped.</p></div>
+          <div class="step"><span>04</span><strong>Or stop</strong><p>If the set does not contain the fact, the answer says so. It does not fill the gap from general knowledge.</p></div>
+        </div>
+        <div class="foot"><span>Citations are real records, with links back to them</span><span>06</span></div>
+      </section>
+
+      <section class="slide" data-part="How it works" data-note="High level only. Browser sends a collection key and, on a picture, a record id. The model never receives the whole web. It receives the records the server loaded.">
+        <p class="kicker">How it works</p>
+        <h2>One question, read from the place you are standing.</h2>
+        <div class="steps">
+          <div class="step"><span>From the page</span><strong>View</strong><p>Collection key, and the record id when a picture has settled. No record text leaves the browser.</p></div>
+          <div class="step"><span>On the server</span><strong>Records</strong><p>That gallery, or that one station, is loaded from Postgres. The prompt names the title and the year you are facing.</p></div>
+          <div class="step"><span>Then</span><strong>Filters</strong><p>A first model call only translates the question into search filters. It is told not to answer yet.</p></div>
+          <div class="step"><span>Last</span><strong>Claims</strong><p>A second call may write only from those records. Dates appear only when the same record writes them.</p></div>
+        </div>
+        <p class="body muted" style="margin-top: 26px;">If you are not looking at a gallery and the search matches nothing, the reply is the no-source sentence. There is no community filter, and the prompt says not to invent one.</p>
+        <div class="foot"><span>Ask the Archive · /api/ask</span><span>07</span></div>
+      </section>
+
+      <section class="slide" data-part="How it works" data-note="1,166 is 747 + 176 + 196 + 36 + 11. This is the index the search reads. Say sample. LAC in this slice is 11 research guides.">
+        <p class="kicker">How it works · the index</p>
+        <h2>Five sources. One catalog. 1,166 records.</h2>
+        <table>
+          <thead>
+            <tr><th>Holding institution</th><th>What this sample is</th><th class="num">Rows</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Nova Scotia Archives</td><td>Photographs, documents, maps, newspapers</td><td class="num">747</td></tr>
+            <tr><td>Black Loyalist Heritage Centre</td><td>Documents, articles, biographies</td><td class="num">176</td></tr>
+            <tr><td>The Canadian Encyclopedia</td><td>Biographies, articles, timelines</td><td class="num">196</td></tr>
+            <tr><td>A Black People’s History of Canada</td><td>BCCNS public-history pages, posters, magazine</td><td class="num">36</td></tr>
+            <tr><td>Library and Archives Canada</td><td>Research guides</td><td class="num">11</td></tr>
+          </tbody>
+        </table>
+        <div class="foot"><span>The same table feeds the hall, the catalog, and Ask</span><span>08</span></div>
+      </section>
+
+      <section class="slide" data-part="How it works" data-note="A new institution is a mapping sheet. The original row is kept. We do not copy the collection, and we do not infer a community from a place name.">
+        <p class="kicker">How it works · the shared record</p>
+        <div class="split">
+          <div>
+            <h2>Normalize the label. Keep the owner on the row.</h2>
+            <p class="body" style="margin-top: 18px;">Each source has a mapping sheet onto Dublin Core: title, creator, date, type, place, rights, access, provenance, and the institution’s own URL. The original row is stored unchanged. People, places, and subjects are linked names. Full-text search covers title, description, subject, and place.</p>
+          </div>
+          <div class="panel">
+            <h3>What stays empty</h3>
+            <p class="body">No source in the sample has a community field, so that column stays empty. Birchtown remains a place or a subject. A date that is not a calendar day stays as text. The hub links to the holding institution. It does not copy the collection.</p>
+          </div>
+        </div>
+        <div class="foot"><span>The next institution joins by a mapping sheet</span><span>09</span></div>
+      </section>
+
+      <section class="slide close" data-part="Close" data-note="Stop. Invite questions. If they ask about the model, return to the no-source sentence and the record in view. If they ask about scale, return to the mapping sheet.">
+        <p class="kicker">Questions</p>
+        <h2>The walk ends on the record that holds the fact.</h2>
+        <p class="lede">Black Cultural Centre for Nova Scotia, Cherry Brook.</p>
+        <div class="criteria">
+          <div>
+            <span>If nothing matches</span>
+            <p>The answer says no records in the archive match the question.</p>
+          </div>
+          <div>
+            <span>What the page sends</span>
+            <p>Which gallery you are in, and which record you are looking at.</p>
+          </div>
+          <div>
+            <span>How it grows</span>
+            <p>Another institution maps onto the same columns and keeps its name on every row.</p>
+          </div>
+        </div>
+        <div class="foot"><span>Protect, preserve, and promote</span><span>10</span></div>
+      </section>
+    </div>
+  </div>
+  <div id="notes"></div>
+  <script>
+    const slides = [...document.querySelectorAll(".slide")];
+    const notes = document.getElementById("notes");
+    const bar = document.getElementById("bar");
+    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    let index = 0;
+    let exitTimer = 0;
+
+    function fit() {
+      const stage = document.getElementById("stage");
+      const scale = Math.min(window.innerWidth / 1280, window.innerHeight / 720);
+      stage.style.transform = `scale(${scale})`;
+    }
+
+    function show(next) {
+      const target = (next + slides.length) % slides.length;
+      if (target === index) return;
+      const previous = slides[index];
+      previous.classList.remove("active");
+      previous.classList.add("exit");
+      window.clearTimeout(exitTimer);
+      const leaving = previous;
+      exitTimer = window.setTimeout(() => leaving.classList.remove("exit"), reduce ? 0 : 460);
+      index = target;
+      slides[index].classList.remove("exit");
+      slides[index].classList.add("active");
+      notes.textContent = slides[index].dataset.note || "";
+      bar.style.width = `${((index + 1) / slides.length) * 100}%`;
+    }
+
+    window.addEventListener("resize", fit);
+    window.addEventListener("keydown", (event) => {
+      if (event.key === "ArrowRight" || event.key === " " || event.key === "PageDown") {
+        event.preventDefault();
+        show(index + 1);
+      } else if (event.key === "ArrowLeft" || event.key === "PageUp") {
+        event.preventDefault();
+        show(index - 1);
+      } else if (event.key === "Home") {
+        show(0);
+      } else if (event.key === "End") {
+        show(slides.length - 1);
+      } else if (event.key === "n" || event.key === "N") {
+        notes.classList.toggle("show");
+      } else if (event.key === "f" || event.key === "F") {
+        if (!document.fullscreenElement) document.documentElement.requestFullscreen();
+        else document.exitFullscreen();
+      }
+    });
+    document.getElementById("stage").addEventListener("click", (event) => {
+      const rect = event.currentTarget.getBoundingClientRect();
+      show(event.clientX - rect.left > rect.width / 2 ? index + 1 : index - 1);
+    });
+    fit();
+    notes.textContent = slides[0].dataset.note || "";
+    bar.style.width = `${(1 / slides.length) * 100}%`;
+  </script>
+</body>
+</html>
