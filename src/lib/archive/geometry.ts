@@ -255,7 +255,7 @@ export function createStationScanTexture(
   const ctx = canvas.getContext("2d");
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
-  tex.anisotropy = 4;
+  tex.anisotropy = 1;
 
   const proxiedUrl = resolveArchivalMediaUrl(station.media_url);
   if (!proxiedUrl) {
@@ -274,7 +274,6 @@ export function createStationScanTexture(
       console.warn(
         `[BccnsArchive] Failed to load archival scan for station "${station.dc_title}" (${station.id}): ${proxiedUrl}`,
       );
-      // Keep the already rendered title + citation canvas intact
     };
     img.src = proxiedUrl;
   }
@@ -676,7 +675,7 @@ function createArchBandGeometry(
     bevelThickness: 0.06,
     bevelSize: 0.06,
     bevelSegments: 2,
-    curveSegments: 16,
+    curveSegments: 8,
   });
   geom.rotateY(-Math.PI / 2);
   geom.translate(depth / 2, 0, 0);
@@ -1243,29 +1242,15 @@ export async function buildMuseumRoomScene({
     emissiveIntensity: 0.03,
   });
 
-  const plinthMat = new THREE.MeshStandardMaterial({
-    color: 0x4a3224,
-    roughness: 0.62,
-    metalness: 0.06,
-  });
+  const plinthMat = new THREE.MeshLambertMaterial({ color: 0x4a3224 });
 
-  const frameOuterMat = new THREE.MeshStandardMaterial({
-    color: 0x5c3d28,
-    roughness: 0.4,
-    metalness: 0.1,
-  });
+  const frameOuterMat = new THREE.MeshLambertMaterial({ color: 0x5c3d28 });
 
-  const ochreTrimMat = new THREE.MeshStandardMaterial({
+  const ochreTrimMat = new THREE.MeshLambertMaterial({
     color: new THREE.Color(collection.washHex || "#C4782A"),
-    roughness: 0.35,
-    metalness: 0.32,
   });
 
-  const walnutTrimMat = new THREE.MeshStandardMaterial({
-    color: 0x6e4b30,
-    roughness: 0.45,
-    metalness: 0.08,
-  });
+  const walnutTrimMat = new THREE.MeshLambertMaterial({ color: 0x6e4b30 });
 
   const paperBackingMat = new THREE.MeshBasicMaterial({
     color: 0xe8d9c8,
@@ -1352,8 +1337,24 @@ export async function buildMuseumRoomScene({
   const ceilingBeamStride = 7.2;
   const numCeilingBeams = Math.ceil(corridorLen / ceilingBeamStride) + 1;
   const crossBeamGeom = new THREE.BoxGeometry(0.38, 0.34, wallZ * 2 + 0.4);
-  const pilasterGeom = new THREE.BoxGeometry(0.42, 6.45, 0.22);
-  const pilasterBaseGeom = new THREE.BoxGeometry(0.5, 0.42, 0.28);
+  const pilasterGeom = new THREE.BoxGeometry(0.42, 5.7, 0.22);
+  const pilasterBaseGeom = new THREE.BoxGeometry(0.56, 0.46, 0.34);
+  const stationCount = collection.stations?.length ?? 0;
+  const firstPicX = -38.2;
+  const lastPicX = maxX - 2.4;
+  const picStepX =
+    stationCount > 1 ? (lastPicX - firstPicX) / (stationCount - 1) : 7.2;
+  // A pilaster sits proud of the baseboard. Skip one that would land inside a frame.
+  const pilasterClear = 1.85;
+  const frameBlocksPilaster = (bx: number, side: number): boolean => {
+    for (let idx = 0; idx < stationCount; idx += 1) {
+      const pictureSide = idx % 2 === 0 ? 1 : -1;
+      if (pictureSide !== side) continue;
+      const pictureX = firstPicX + idx * picStepX;
+      if (Math.abs(bx - pictureX) < pilasterClear) return true;
+    }
+    return false;
+  };
 
   for (let i = 0; i < numCeilingBeams; i++) {
     const bx = startWallX + i * ceilingBeamStride;
@@ -1363,14 +1364,15 @@ export async function buildMuseumRoomScene({
     beam.position.set(bx, 6.55, 0);
     root.add(beam);
 
-    // Architectural pilasters dividing the gallery walls into rhythmic exhibition bays
     for (const side of [-1, 1]) {
+      if (frameBlocksPilaster(bx, side)) continue;
+      // Proud of the baseboard, and stopped at the dado so the base is one piece.
       const pilaster = new THREE.Mesh(pilasterGeom, recessedBayMat);
-      pilaster.position.set(bx, 3.225, side * (wallZ - 0.12));
+      pilaster.position.set(bx, 3.31, side * (wallZ - 0.46));
       root.add(pilaster);
 
       const pilasterBase = new THREE.Mesh(pilasterBaseGeom, plinthMat);
-      pilasterBase.position.set(bx, 0.21, side * (wallZ - 0.12));
+      pilasterBase.position.set(bx, 0.23, side * (wallZ - 0.5));
       root.add(pilasterBase);
     }
   }
@@ -1523,10 +1525,6 @@ export async function buildMuseumRoomScene({
 
   // 5. Framed Archival Stations Hanging on the Museum Gallery Walls
   const stations = collection.stations || [];
-  const firstPicX = -38.2;
-  const lastPicX = maxX - 2.4;
-  const picStepX =
-    stations.length > 1 ? (lastPicX - firstPicX) / (stations.length - 1) : 7.2;
 
   // Picture above, serif title plate below. The board is raised so the caption clears the baseboard.
   const imageSize = 2.54;
@@ -1562,7 +1560,7 @@ export async function buildMuseumRoomScene({
   const rodLength = Math.max(0.45, ceilingLocalY - rodBottom);
   const rodY = rodBottom + rodLength / 2;
 
-  const picGeom = new THREE.PlaneGeometry(imageSize, imageSize, 16, 16);
+  const picGeom = new THREE.PlaneGeometry(imageSize, imageSize);
   const titleGeom = new THREE.PlaneGeometry(titleWidth, titleHeight);
 
   // 4-Bar Mitered Museum Picture Frame geometries & recessed mat board (strictly behind z = 0 so picMesh is never occluded)
@@ -1577,10 +1575,8 @@ export async function buildMuseumRoomScene({
   const pictureLightBarGeom = new THREE.BoxGeometry(1.42, 0.07, 0.22);
   const pictureLightArmGeom = new THREE.BoxGeometry(0.06, 0.06, 0.36);
   const lampGlowGeom = new THREE.BoxGeometry(1.22, 0.025, 0.14);
-  const lampHousingMat = new THREE.MeshStandardMaterial({
+  const lampHousingMat = new THREE.MeshLambertMaterial({
     color: 0xc9892d,
-    roughness: 0.38,
-    metalness: 0.45,
     emissive: 0x5a3d12,
     emissiveIntensity: 0.35,
   });
@@ -1748,6 +1744,7 @@ export async function buildMuseumRoomScene({
     const shadowMesh = new THREE.Mesh(shadowGeom, shadowMat);
     shadowMesh.position.set(xPos, 0.035, zPos);
     shadowMesh.rotation.y = isRightSide ? -0.52 : 0.52;
+    picMesh.userData.shadowMesh = shadowMesh;
     root.add(shadowMesh);
   });
 
@@ -1769,6 +1766,13 @@ export async function buildMuseumRoomScene({
   camera.position.set(0, 0, 2);
   viewNode.add(camera);
   root.add(viewNode);
+
+  const moving = new Set<THREE.Object3D>([viewNode, camera]);
+  root.traverse((child) => {
+    if (moving.has(child)) return;
+    child.updateMatrix();
+    child.matrixAutoUpdate = false;
+  });
 
   return {
     root,
