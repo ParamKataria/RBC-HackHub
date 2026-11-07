@@ -1,0 +1,3 @@
+[submodule "services/DataAggregationServiceForBCCNS"]
+	path = services/DataAggregationServiceForBCCNS
+	url = https://github.com/ParamKataria/DataAggregationServiceForBCCNS.git
