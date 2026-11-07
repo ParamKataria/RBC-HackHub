@@ -370,6 +370,7 @@ export function BccnsArchiveExperience({
 
   // --- React UI State ---
   const [gateView, setGateView] = useState<ArchiveGateView>("arrival");
+  const [starterQuestion, setStarterQuestion] = useState<string | undefined>();
   const [appMode, setAppMode] = useState<AppMode>("hall");
   const [activePortalId, setActivePortalId] = useState<number>(0);
   const [currentCollectionKey, setCurrentCollectionKey] =
@@ -2886,11 +2887,37 @@ export function BccnsArchiveExperience({
                 <br />
                 Memory
               </p>
-              <p id="bccns-arrival-summary" className="bccns-ledger-copy">
-                {institution.mandate} Turn the rotunda to enter six historical
-                chapters and inspect digitized archival records with their exact
-                holding institutions and citations.
-              </p>
+              <div className="bccns-ledger-copy" id="bccns-arrival-summary">
+                <p>
+                  {institution.mandate} Ask a question in plain language. The
+                  answer stays tied to records held by museums and archives, and
+                  each one links back to the institution that keeps it.
+                </p>
+                <div className="bccns-example-questions">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setStarterQuestion(
+                        "Where can I find records about Black railway porters in Canada?",
+                      );
+                      showGateView("ask");
+                    }}
+                  >
+                    Where can I find records about Black railway porters in Canada?
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setStarterQuestion(
+                        "What archives hold information about the No. 2 Construction Battalion?",
+                      );
+                      showGateView("ask");
+                    }}
+                  >
+                    What archives hold information about the No. 2 Construction Battalion?
+                  </button>
+                </div>
+              </div>
               <div className="bccns-ledger-actions">
                 <button
                   type="button"
@@ -2941,7 +2968,11 @@ export function BccnsArchiveExperience({
                 <p className="bccns-arrival-copy">
                   Ask about a chapter, a place, or a record. The answer stays tied to the holdings.
                 </p>
-                <ArchiveSearchBar autoNavigate={false} showCatalogCta={true} />
+                <ArchiveSearchBar
+                  autoNavigate={false}
+                  showCatalogCta={true}
+                  initialQuestion={starterQuestion}
+                />
                 <div className="bccns-arrival-actions">
                   <button
                     type="button"

@@ -1729,6 +1729,33 @@ background: linear-gradient(
   color: rgba(34, 23, 23, 0.84);
 }
 
+.bccns-ledger-copy p {
+  margin: 0;
+}
+
+.bccns-example-questions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.bccns-example-questions button {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--bccns-ink);
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.4;
+  text-align: left;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
 .bccns-ledger-actions {
   grid-column: 4;
   grid-row: 3;
