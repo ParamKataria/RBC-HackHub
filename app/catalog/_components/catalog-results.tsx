@@ -1,39 +1,18 @@
-import Link from "next/link";
-
 import { AskArchive } from "@/app/catalog/_components/ask-archive";
 import { CatalogFilters } from "@/app/catalog/_components/catalog-filters";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { CatalogResultsView } from "@/app/catalog/_components/catalog-results-view";
 import { catalogService, searchService } from "@/lib/services";
 import {
   parseSearchParams,
-  type CatalogRecord,
+  type CatalogPageProps,
   type SearchQuery,
 } from "@/src/types";
 import { ZodError } from "zod";
 
 const PAGE_SIZE = 20;
 
-type CatalogSearchParams = {
-  q?: string | string[];
-  institution?: string | string[];
-  type?: string | string[];
-  subject?: string | string[];
-  place?: string | string[];
-  from?: string | string[];
-  to?: string | string[];
-  page?: string | string[];
-};
-
 /**
- * SOURCE OF TRUTH KEYWORDS: searchParamsToUrl, SearchQuery, /api/search, page
+ * SOURCE OF TRUTH KEYWORDS: searchParamsToUrl, SearchQuery, URLSearchParams, /api/search, page, catalogFilters
  * WHAT: Turns the catalog query into a URL query string.
  * WHY: Pagination and the JSON route must keep the same full-text filters.
  * WHERE: Catalog result links.
@@ -52,7 +31,7 @@ function searchParamsToUrl(filters: SearchQuery, page?: number): string {
 }
 
 /**
- * SOURCE OF TRUTH KEYWORDS: catalogPageHref, SearchQuery, pagination
+ * SOURCE OF TRUTH KEYWORDS: catalogPageHref, SearchQuery, searchParamsToUrl, pagination, /catalog, queryString
  * WHAT: Builds a catalog page link for the active full-text filters.
  * WHY: Page 1 with no filters should stay on /catalog.
  * WHERE: Previous and next links.
@@ -63,26 +42,12 @@ function catalogPageHref(filters: SearchQuery, page: number): string {
 }
 
 /**
- * SOURCE OF TRUTH KEYWORDS: recordDateLabel, dc_date, date_text
- * WHAT: Picks the ISO date or the original vague date text.
- * WHY: Only exact dates live in dc_date, and the card still needs to show circa dates.
- * WHERE: Catalog record cards.
- */
-function recordDateLabel(record: CatalogRecord): string {
-  return record.dc_date ?? record.date_text ?? "Date not recorded";
-}
-
-/**
- * SOURCE OF TRUTH KEYWORDS: CatalogResults, CatalogRecord, Postgres totals, searchParams
- * WHAT: Renders catalog totals, filters, and one page of records.
- * WHY: This is the sample page for checking that the CSV landed in Postgres.
+ * SOURCE OF TRUTH KEYWORDS: CatalogResults, CatalogPageProps, CatalogRecord, PostgresTotals, searchParams, CatalogResultsView
+ * WHAT: Renders catalog totals, filters, and one page of records with List View and Connection Graph toggle.
+ * WHY: Connects the server-side Supabase full-text search results to the interactive catalog list and graph views.
  * WHERE: app/catalog/page.tsx inside Suspense.
  */
-export async function CatalogResults({
-  searchParams,
-}: {
-  searchParams: Promise<CatalogSearchParams>;
-}) {
+export async function CatalogResults({ searchParams }: CatalogPageProps) {
   const rawParams = await searchParams;
   const requestParams = new URLSearchParams();
   for (const key of ["q", "institution", "type", "subject", "place", "from", "to"] as const) {
@@ -102,7 +67,7 @@ export async function CatalogResults({
     const message =
       error instanceof ZodError ? (error.issues[0]?.message ?? "Invalid search") : "Invalid search";
     return (
-      <p className="rounded-md border border-destructive/40 bg-destructive/10 p-4 text-sm text-foreground">
+      <p className="rounded-sm border border-destructive/40 bg-destructive/10 p-4 text-sm text-foreground">
         {message}
       </p>
     );
@@ -118,7 +83,7 @@ export async function CatalogResults({
   } catch (error) {
     const message = error instanceof Error ? error.message : "Catalog query failed";
     return (
-      <p className="rounded-md border border-destructive/40 bg-destructive/10 p-4 text-sm text-foreground">
+      <p className="rounded-sm border border-destructive/40 bg-destructive/10 p-4 text-sm text-foreground">
         {message}
       </p>
     );
@@ -132,6 +97,8 @@ export async function CatalogResults({
   const records = search.results.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
   const apiQuery = searchParamsToUrl(filters);
   const apiHref = apiQuery ? `/api/search?${apiQuery}` : "/api/search";
+  const previousPageHref = page > 1 ? catalogPageHref(filters, page - 1) : null;
+  const nextPageHref = page < pageCount ? catalogPageHref(filters, page + 1) : null;
 
   const totals = [
     ["Records", header.totals.records],
@@ -148,7 +115,7 @@ export async function CatalogResults({
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <h1 className="text-3xl font-bold tracking-tight text-foreground">
+        <h1 className="font-serif text-3xl font-bold tracking-tight text-foreground">
           Black history catalog
         </h1>
         <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
@@ -161,7 +128,7 @@ export async function CatalogResults({
 
       <dl className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
         {totals.map(([label, value]) => (
-          <div key={label} className="rounded-lg border border-border bg-card p-3">
+          <div key={label} className="rounded-sm border border-border bg-card p-3">
             <dt className="text-xs text-muted-foreground">{label}</dt>
             <dd className="text-2xl font-semibold text-card-foreground">
               {value.toLocaleString()}
@@ -172,69 +139,15 @@ export async function CatalogResults({
 
       <CatalogFilters publishers={header.publishers} query={filters} />
 
-      <p className="text-sm text-muted-foreground">
-        {search.count.toLocaleString()} matching records · page {page} of {pageCount}
-        {" · "}
-        <a href={apiHref} className="text-primary underline-offset-4 hover:underline">
-          {apiHref}
-        </a>
-      </p>
-
-      <div className="flex flex-col gap-4">
-        {records.map((record) => (
-          <Card key={record.id}>
-            <CardHeader>
-              <CardTitle>
-                <Link href={`/catalog/${record.id}`} className="hover:underline">
-                  {record.dc_title}
-                </Link>
-              </CardTitle>
-              <CardDescription>{record.dc_publisher}</CardDescription>
-            </CardHeader>
-            <CardContent className="flex flex-col gap-3">
-              <div className="flex flex-wrap gap-2">
-                <Badge variant="secondary">{record.dc_type}</Badge>
-                <Badge variant="outline">{recordDateLabel(record)}</Badge>
-                <Badge variant="outline">
-                  {record.bccns_digitized ? "Digitized" : "Not digitized"}
-                </Badge>
-                {record.bccns_access_status ? (
-                  <Badge variant="outline">{record.bccns_access_status}</Badge>
-                ) : null}
-              </div>
-              {record.dc_description ? (
-                <p className="line-clamp-3 text-sm text-muted-foreground">
-                  {record.dc_description}
-                </p>
-              ) : null}
-              <a
-                href={record.dc_identifier}
-                target="_blank"
-                rel="noreferrer"
-                className="truncate text-sm text-primary underline-offset-4 hover:underline"
-              >
-                {record.dc_identifier}
-              </a>
-            </CardContent>
-          </Card>
-        ))}
-        {records.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No records match this search.</p>
-        ) : null}
-      </div>
-
-      <div className="flex items-center gap-3">
-        {page > 1 ? (
-          <Button variant="outline" asChild>
-            <Link href={catalogPageHref(filters, page - 1)}>Previous</Link>
-          </Button>
-        ) : null}
-        {page < pageCount ? (
-          <Button variant="outline" asChild>
-            <Link href={catalogPageHref(filters, page + 1)}>Next</Link>
-          </Button>
-        ) : null}
-      </div>
+      <CatalogResultsView
+        records={records}
+        totalMatchingCount={search.count}
+        currentPage={page}
+        pageCount={pageCount}
+        apiHref={apiHref}
+        previousPageHref={previousPageHref}
+        nextPageHref={nextPageHref}
+      />
     </div>
   );
 }

@@ -44,3 +44,7 @@ next-env.d.ts
 # local agent skills (installed for the editor, not part of the app)
 .agents/
 skills-lock.json
+
+# Agent skill tracking & local scratch issues (untracked)
+.scratch/
+docs/agents/

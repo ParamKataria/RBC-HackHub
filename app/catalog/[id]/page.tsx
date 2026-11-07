@@ -2,9 +2,17 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Suspense } from "react";
 
+import { ConnectionsGraphView } from "@/app/catalog/_components";
 import { Badge } from "@/components/ui/badge";
 import { catalogService } from "@/lib/services";
-import { fieldLabel, type CatalogRecord, type CatalogRecordDetail } from "@/src/types";
+import {
+  fieldLabel,
+  linkedListPropsSchema,
+  type CatalogRecord,
+  type CatalogRecordDetail,
+  type CatalogRecordPageProps,
+  type LinkedListProps,
+} from "@/src/types";
 
 const storedFieldKeys = [
   "dc_title",
@@ -27,7 +35,7 @@ const storedFieldKeys = [
 ] as const satisfies readonly (keyof CatalogRecord)[];
 
 /**
- * SOURCE OF TRUTH KEYWORDS: fieldText, fieldLabel, storedFieldKeys, CatalogRecord
+ * SOURCE OF TRUTH KEYWORDS: fieldText, fieldLabel, storedFieldKeys, CatalogRecord, CatalogRecordPage
  * WHAT: Turns one stored catalog value into text for the detail list.
  * WHY: The label comes from the schema map, so array and boolean columns still render.
  * WHERE: Record detail stored-fields section.
@@ -47,12 +55,12 @@ function fieldText(
 }
 
 /**
- * SOURCE OF TRUTH KEYWORDS: RecordFields, CatalogRecordDetail, dc_identifier, raw_metadata
- * WHAT: Renders stored columns and the untouched source metadata.
- * WHY: A tester can compare one Postgres row with the original CSV fields.
+ * SOURCE OF TRUTH KEYWORDS: RecordFields, CatalogRecordDetail, CatalogRecordPageProps, ConnectionsGraphView, dc_identifier, raw_metadata
+ * WHAT: Renders stored columns, the compact per-record Connection Graph alongside relational join lists, and untouched source metadata.
+ * WHY: Lets visitors inspect one record's cross-archive connections side-by-side with its joined people, places, communities, and subjects.
  * WHERE: /catalog/[id].
  */
-async function RecordFields({ params }: { params: Promise<{ id: string }> }) {
+async function RecordFields({ params }: CatalogRecordPageProps) {
   const { id } = await params;
   let record: CatalogRecordDetail | null;
   try {
@@ -60,7 +68,7 @@ async function RecordFields({ params }: { params: Promise<{ id: string }> }) {
   } catch (error) {
     const message = error instanceof Error ? error.message : "Record query failed";
     return (
-      <p className="rounded-md border border-destructive/40 bg-destructive/10 p-4 text-sm">
+      <p className="rounded-sm border border-destructive/40 bg-destructive/10 p-4 text-sm">
         {message}
       </p>
     );
@@ -76,6 +84,12 @@ async function RecordFields({ params }: { params: Promise<{ id: string }> }) {
     (link) => `${link.people.name} (${link.role})`,
   );
   const linkedPlaces = record.record_places.map((link) => link.places.name);
+  const linkedCommunities = Array.from(
+    new Set([
+      ...record.record_communities.map((link) => link.communities.name),
+      ...record.bccns_community,
+    ]),
+  );
   const linkedSubjects = record.record_subjects.map((link) => link.subjects.name);
 
   return (
@@ -84,10 +98,16 @@ async function RecordFields({ params }: { params: Promise<{ id: string }> }) {
         <Link href="/catalog" className="text-sm text-primary hover:underline">
           Back to catalog
         </Link>
-        <h1 className="mt-3 text-3xl font-bold tracking-tight">{record.dc_title}</h1>
+        <h1 className="mt-3 font-serif text-3xl font-bold tracking-tight">
+          {record.dc_title}
+        </h1>
         <div className="mt-3 flex flex-wrap gap-2">
-          <Badge variant="secondary">{record.dc_type}</Badge>
-          <Badge variant="outline">{record.dc_publisher}</Badge>
+          <Badge variant="secondary" className="rounded-sm">
+            {record.dc_type}
+          </Badge>
+          <Badge variant="outline" className="rounded-sm">
+            {record.dc_publisher}
+          </Badge>
         </div>
       </div>
 
@@ -106,9 +126,25 @@ async function RecordFields({ params }: { params: Promise<{ id: string }> }) {
         {record.dc_identifier}
       </a>
 
+      <section className="grid items-start gap-6 lg:grid-cols-12">
+        <div className="lg:col-span-7">
+          <ConnectionsGraphView
+            records={[record]}
+            focalRecordId={record.id}
+            compact
+          />
+        </div>
+        <div className="grid gap-4 sm:grid-cols-2 lg:col-span-5">
+          <LinkedList title="People" items={linkedPeople} />
+          <LinkedList title="Communities" items={linkedCommunities} />
+          <LinkedList title="Places" items={linkedPlaces} />
+          <LinkedList title="Subjects" items={linkedSubjects} />
+        </div>
+      </section>
+
       <section>
-        <h2 className="mb-3 text-lg font-semibold">Stored fields</h2>
-        <dl className="divide-y divide-border rounded-lg border border-border">
+        <h2 className="mb-3 font-serif text-lg font-semibold">Stored fields</h2>
+        <dl className="divide-y divide-border rounded-sm border border-border">
           {fields.map(([label, value]) => (
             <div key={label} className="grid gap-1 px-4 py-3 sm:grid-cols-3">
               <dt className="text-sm text-muted-foreground">{label}</dt>
@@ -120,15 +156,9 @@ async function RecordFields({ params }: { params: Promise<{ id: string }> }) {
         </dl>
       </section>
 
-      <section className="grid gap-4 sm:grid-cols-3">
-        <LinkedList title="People" items={linkedPeople} />
-        <LinkedList title="Places" items={linkedPlaces} />
-        <LinkedList title="Subjects" items={linkedSubjects} />
-      </section>
-
       <section>
-        <h2 className="mb-3 text-lg font-semibold">Original metadata</h2>
-        <dl className="divide-y divide-border rounded-lg border border-border">
+        <h2 className="mb-3 font-serif text-lg font-semibold">Original metadata</h2>
+        <dl className="divide-y divide-border rounded-sm border border-border">
           {Object.entries(record.raw_metadata).map(([key, value]) => (
             <div key={key} className="grid gap-1 px-4 py-3 sm:grid-cols-3">
               <dt className="text-sm text-muted-foreground">{fieldLabel(key)}</dt>
@@ -144,14 +174,15 @@ async function RecordFields({ params }: { params: Promise<{ id: string }> }) {
 }
 
 /**
- * SOURCE OF TRUTH KEYWORDS: LinkedList, people, places, subjects
+ * SOURCE OF TRUTH KEYWORDS: LinkedList, LinkedListProps, record_people, record_places, record_communities, record_subjects
  * WHAT: Shows names linked to a record through a join table.
- * WHY: Empty join lists stay visible so missing links are obvious.
+ * WHY: Empty join lists stay visible so missing links are obvious, with props validated via Zod.
  * WHERE: Record detail page.
  */
-function LinkedList({ title, items }: { title: string; items: string[] }) {
+function LinkedList(rawProps: LinkedListProps) {
+  const { title, items } = linkedListPropsSchema.parse(rawProps);
   return (
-    <div className="rounded-lg border border-border bg-card p-4">
+    <div className="rounded-sm border border-border bg-card p-4">
       <h2 className="text-sm font-semibold text-card-foreground">{title}</h2>
       {items.length > 0 ? (
         <ul className="mt-2 flex flex-col gap-1 text-sm text-muted-foreground">
@@ -167,16 +198,12 @@ function LinkedList({ title, items }: { title: string; items: string[] }) {
 }
 
 /**
- * SOURCE OF TRUTH KEYWORDS: CatalogRecordPage, record detail, raw_metadata
+ * SOURCE OF TRUTH KEYWORDS: CatalogRecordPage, CatalogRecordPageProps, RecordFields, CatalogRecordDetail, raw_metadata, dc_identifier
  * WHAT: Detail route for one catalog record.
  * WHY: Opens a single Postgres row for field-by-field checking.
  * WHERE: Route /catalog/[id].
  */
-export default function CatalogRecordPage({
-  params,
-}: {
-  params: Promise<{ id: string }>;
-}) {
+export default function CatalogRecordPage({ params }: CatalogRecordPageProps) {
   return (
     <main className="min-h-screen bg-background text-foreground">
       <div className="mx-auto w-full max-w-5xl px-5 py-8">

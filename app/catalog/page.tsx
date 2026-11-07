@@ -1,24 +1,12 @@
 import Link from "next/link";
 import { Suspense } from "react";
 
-import { CatalogResults } from "@/app/catalog/_components/catalog-results";
+import { CatalogResults } from "@/app/catalog/_components";
 import { ThemeSwitcher } from "@/components/theme-switcher";
-
-type CatalogPageProps = {
-  searchParams: Promise<{
-    q?: string | string[];
-    institution?: string | string[];
-    type?: string | string[];
-    subject?: string | string[];
-    place?: string | string[];
-    from?: string | string[];
-    to?: string | string[];
-    page?: string | string[];
-  }>;
-};
+import type { CatalogPageProps } from "@/src/types";
 
 /**
- * SOURCE OF TRUTH KEYWORDS: CatalogPage, /catalog, sample frontend, Postgres records
+ * SOURCE OF TRUTH KEYWORDS: CatalogPage, CatalogPageProps, CatalogResults, /catalog, sampleFrontend, PostgresRecords
  * WHAT: Public test page for the loaded Black history records.
  * WHY: Gives a browser entry point to search the Supabase Postgres catalog.
  * WHERE: Route /catalog.
