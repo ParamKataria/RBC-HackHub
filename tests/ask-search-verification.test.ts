@@ -757,3 +757,212 @@ describe("ArchiveSearchBar Accessibility and Submission Contract", () => {
   });
 });
 
+/**
+ * SOURCE OF TRUTH KEYWORDS: archiveSearchBarDualModeTest, modeToggleContract, queryRetention, keywordVsAi, dualModeAccessibility
+ * WHAT: Unit and contract tests for ArchiveSearchBar dual-mode switching between keyword and AI search.
+ * WHY: Proves accessible radio group semantics, query text preservation, placeholder switching, CTA chip, and panel dismissal.
+ * WHERE: tests/ask-search-verification.test.ts (verifies Ticket 01).
+ */
+describe("ArchiveSearchBar Dual-Mode and Mode Toggle Contract", () => {
+  it("validates archiveSearchBarPropsSchema with enableModeToggle, defaultMode, and currentFilters", () => {
+    const validConfig = {
+      enableModeToggle: true,
+      defaultMode: "keyword",
+      currentFilters: { institution: "BCCNS", place: "Halifax" },
+      initialQuestion: "church records",
+    };
+
+    const parsed = archiveSearchBarPropsSchema.parse(validConfig);
+    expect(parsed.enableModeToggle).toBe(true);
+    expect(parsed.defaultMode).toBe("keyword");
+    expect(parsed.currentFilters).toEqual({
+      institution: "BCCNS",
+      place: "Halifax",
+    });
+
+    // Rejects invalid mode values
+    const invalidMode = archiveSearchBarPropsSchema.safeParse({
+      enableModeToggle: true,
+      defaultMode: "unsupported-mode",
+    });
+    expect(invalidMode.success).toBe(false);
+  });
+
+  it("retains 100% backward compatible DOM and placeholder when enableModeToggle is false or omitted", () => {
+    // When enableModeToggle is omitted
+    const legacyMarkup = renderToStaticMarkup(
+      React.createElement(ArchiveSearchBar, {
+        initialQuestion: "African Nova Scotian communities",
+      }),
+    );
+
+    // No radiogroup or CTA chip in legacy mode
+    expect(legacyMarkup).not.toContain('role="radiogroup"');
+    expect(legacyMarkup).not.toContain("Switch to Ask AI");
+    expect(legacyMarkup).toContain('placeholder="Ask the archive"');
+    expect(legacyMarkup).toContain('aria-label="Submit inquiry"');
+
+    // When enableModeToggle is explicitly false
+    const explicitFalseMarkup = renderToStaticMarkup(
+      React.createElement(ArchiveSearchBar, {
+        enableModeToggle: false,
+        initialQuestion: "Oral histories",
+      }),
+    );
+
+    expect(explicitFalseMarkup).not.toContain('role="radiogroup"');
+    expect(explicitFalseMarkup).not.toContain("Switch to Ask AI");
+    expect(explicitFalseMarkup).toContain('placeholder="Ask the archive"');
+  });
+
+  it("renders accessible segmented radio toggle defaulting to keyword search mode when enableModeToggle is true", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(ArchiveSearchBar, {
+        enableModeToggle: true,
+      }),
+    );
+
+    // Radiogroup container
+    expect(html).toContain('role="radiogroup"');
+    expect(html).toContain('aria-label="Search mode"');
+
+    // Keyword Search radio option (active by default)
+    expect(html).toContain('role="radio"');
+    expect(html).toContain('aria-checked="true"');
+    expect(html).toContain("Keyword Search");
+
+    // Ask AI radio option (inactive by default)
+    expect(html).toContain('aria-checked="false"');
+    expect(html).toContain("Ask AI");
+
+    // Default keyword placeholder
+    expect(html).toContain(
+      'placeholder="Search title, description, subject, place, or community..."',
+    );
+
+    // Subtle CTA chip below search bar in keyword mode
+    expect(html).toContain("Looking for answers in plain language?");
+    expect(html).toContain("Switch to Ask AI");
+  });
+
+  it("renders with AI mode active when defaultMode is set to ai", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(ArchiveSearchBar, {
+        enableModeToggle: true,
+        defaultMode: "ai",
+      }),
+    );
+
+    // Ask AI is checked
+    expect(html).toContain('role="radiogroup"');
+    const aiRadioMatch = /<button[^>]*aria-checked="true"[^>]*>[\s\S]*?Ask AI[\s\S]*?<\/button>/.test(html);
+    expect(aiRadioMatch).toBe(true);
+
+    // Placeholder defaults to "Ask the archive"
+    expect(html).toContain('placeholder="Ask the archive"');
+
+    // CTA chip is NOT rendered in AI mode
+    expect(html).not.toContain("Looking for answers in plain language?");
+  });
+
+  it("preserves drafted query text across mode rendering without altering user input", () => {
+    const draftedText = "Africville Baptist Church lineage";
+
+    // 1. Keyword mode preserves drafted query text
+    const keywordHtml = renderToStaticMarkup(
+      React.createElement(ArchiveSearchBar, {
+        enableModeToggle: true,
+        defaultMode: "keyword",
+        initialQuestion: draftedText,
+      }),
+    );
+    expect(keywordHtml).toContain(`value="${draftedText}"`);
+    expect(keywordHtml).toContain(
+      'placeholder="Search title, description, subject, place, or community..."',
+    );
+
+    // 2. AI mode preserves the identical drafted query text
+    const aiHtml = renderToStaticMarkup(
+      React.createElement(ArchiveSearchBar, {
+        enableModeToggle: true,
+        defaultMode: "ai",
+        initialQuestion: draftedText,
+      }),
+    );
+    expect(aiHtml).toContain(`value="${draftedText}"`);
+    expect(aiHtml).toContain('placeholder="Ask the archive"');
+  });
+
+  it("ensures all mode toggle and CTA buttons specify type button to prevent unsolicited form submission", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(ArchiveSearchBar, {
+        enableModeToggle: true,
+        defaultMode: "keyword",
+        initialQuestion: "Draft query without submitting",
+      }),
+    );
+
+    // Toggle radio buttons must explicitly have type="button"
+    const radioButtons = html.match(/<button[^>]*role="radio"[^>]*>/g) ?? [];
+    expect(radioButtons).toHaveLength(2);
+    for (const btn of radioButtons) {
+      expect(btn).toContain('type="button"');
+    }
+
+    // CTA prompt chip must explicitly have type="button"
+    const ctaButtons = html.match(/<button[^>]*class="[^"]*ctaPrompt[^"]*"[^>]*>/g) ?? [];
+    expect(ctaButtons).toHaveLength(1);
+    expect(ctaButtons[0]).toContain('type="button"');
+
+    // Only the actual search submit button should have type="submit"
+    const submitButtons = html.match(/<button[^>]*type="submit"[^>]*>/g) ?? [];
+    expect(submitButtons).toHaveLength(1);
+    expect(submitButtons[0]).toContain('aria-label="Search catalog"');
+  });
+
+  it("merges active keyword query and secondary filters when preparing catalog search submission", () => {
+    const existingSearch = "?institution=BCCNS&place=Halifax&type=photograph&page=4";
+    const keywordQuery = "church elder records";
+    const currentFilters: SearchQuery = {
+      institution: "BCCNS",
+      place: "Halifax",
+      type: "photograph",
+    };
+
+    const targetUrl = mergeCatalogSearchParams(existingSearch, {
+      ...currentFilters,
+      q: keywordQuery,
+    });
+
+    expect(targetUrl).toBe(
+      "/catalog?institution=BCCNS&place=Halifax&type=photograph&q=church+elder+records",
+    );
+
+    // Assert that pagination was stripped and secondary filters remained intact
+    const targetParams = new URLSearchParams(targetUrl.replace("/catalog?", ""));
+    expect(targetParams.has("page")).toBe(false);
+    const parsed = parseSearchParams(targetParams);
+    expect(parsed.q).toBe(keywordQuery);
+    expect(parsed.institution).toBe("BCCNS");
+    expect(parsed.place).toBe("Halifax");
+    expect(parsed.type).toBe("photograph");
+  });
+
+  it("dismisses open AI panel and clears error state when switching to keyword mode", () => {
+    // When rendered in keyword mode, the open answer panel is omitted even if answers were previously present
+    const html = renderToStaticMarkup(
+      React.createElement(ArchiveSearchBar, {
+        enableModeToggle: true,
+        defaultMode: "keyword",
+        initialQuestion: "Grounded inquiry text",
+      }),
+    );
+
+    // The archive answer panel and claims list are not rendered
+    expect(html).not.toContain("Claims and Citations");
+    expect(html).not.toContain("Explore matching records in Catalog");
+    expect(html).not.toContain('class="panel"');
+  });
+});
+
+

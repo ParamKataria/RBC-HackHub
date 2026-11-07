@@ -235,9 +235,9 @@ export const archiveGlanceSchema = z.object({
 export type ArchiveGlance = z.infer<typeof archiveGlanceSchema>;
 
 /**
- * SOURCE OF TRUTH KEYWORDS: archiveSearchBarPropsSchema, ArchiveSearchBarProps, searchBarConfig, initialQuestion, autoNavigate, showCatalogCta
- * WHAT: Validated props schema and TypeScript interface for ArchiveSearchBar.
- * WHY: Enforces type-safe configuration of navigation, CTA links, initial query hydration, and callbacks across Homeview and Catalog.
+ * SOURCE OF TRUTH KEYWORDS: archiveSearchBarPropsSchema, ArchiveSearchBarProps, enableModeToggle, defaultMode, currentFilters, searchBarConfig
+ * WHAT: Validated props schema and TypeScript interface for ArchiveSearchBar including dual-mode search configuration.
+ * WHY: Enforces type-safe configuration of navigation, CTA links, initial query hydration, callbacks, and keyword vs AI mode toggles.
  * WHERE: src/types/ask.ts, src/components/archive/archive-search-bar.tsx.
  */
 export const archiveSearchBarPropsSchema = z.object({
@@ -247,6 +247,9 @@ export const archiveSearchBarPropsSchema = z.object({
   placeholder: z.string().optional(),
   claimLimit: z.number().int().positive().optional(),
   className: z.string().optional(),
+  enableModeToggle: z.boolean().optional(),
+  defaultMode: z.enum(["keyword", "ai"]).optional(),
+  currentFilters: searchQuerySchema.optional(),
 });
 
 export type ArchiveSearchBarProps = z.infer<typeof archiveSearchBarPropsSchema> & {

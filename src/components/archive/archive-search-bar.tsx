@@ -66,23 +66,33 @@ export function clearCatalogSearchParams(currentSearch: string): string {
   return qs ? `/catalog?${qs}` : "/catalog";
 }
 
+const defaultKeywordPlaceholder =
+  "Search title, description, subject, place, or community...";
+const defaultAiPlaceholder = "Ask the archive";
+
 /**
- * SOURCE OF TRUTH KEYWORDS: ArchiveSearchBar, ArchiveSearchBarProps, initialQuestion, shared search bar, AI inquiry, filterHref
- * WHAT: Global reusable search bar for Ask the Archive across Catalog and Home page views.
- * WHY: Unifies natural-language inquiries, loading animations, grounded citation panels, and URL query synchronization without storage leakage.
+ * SOURCE OF TRUTH KEYWORDS: ArchiveSearchBar, ArchiveSearchBarProps, enableModeToggle, defaultMode, dualModeSearch, keywordVsAi
+ * WHAT: Global reusable search bar supporting dual-mode database keyword search and natural-language AI archival inquiries.
+ * WHY: Unifies keyword catalog exploration and AI claim synthesis with query retention, URL synchronization, and accessible mode switching.
  * WHERE: Rendered on the /catalog route and the Home page arrival gate screen.
  */
 export function ArchiveSearchBar({
   autoNavigate = false,
   showCatalogCta = false,
   initialQuestion,
-  placeholder = "Ask the archive",
+  placeholder,
   claimLimit,
   className,
+  enableModeToggle = false,
+  defaultMode,
+  currentFilters,
   onAnswer,
   onClear,
 }: ArchiveSearchBarProps) {
   const router = useRouter();
+  const initialEffectiveMode: "keyword" | "ai" =
+    defaultMode ?? (enableModeToggle ? "keyword" : "ai");
+  const [mode, setMode] = useState<"keyword" | "ai">(initialEffectiveMode);
   const [question, setQuestion] = useState(initialQuestion ?? "");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -99,10 +109,45 @@ export function ArchiveSearchBar({
   }, [initialQuestion]);
 
   /**
+   * SOURCE OF TRUTH KEYWORDS: switchMode, dualModeSearch, modeToggle, queryRetention, panelDismissal
+   * WHAT: Switches active search mode between database keyword search and AI archival inquiries.
+   * WHY: Preserves drafted query text in memory while dismissing open AI answer panels when returning to keyword mode.
+   * WHERE: ArchiveSearchBar mode toggle click and CTA prompt activation.
+   */
+  const switchMode = (newMode: "keyword" | "ai") => {
+    if (newMode === mode) {
+      return;
+    }
+    setMode(newMode);
+    if (newMode === "keyword") {
+      setResult(null);
+      setError(null);
+    }
+  };
+
+  /**
+   * SOURCE OF TRUTH KEYWORDS: handleRadioKeyDown, accessibleRadioGroup, arrowKeyNavigation, modeToggleKeyNav, searchAccessibility
+   * WHAT: Handles keyboard arrow navigation for the accessible mode toggle radiogroup.
+   * WHY: Satisfies WAI-ARIA radio group keyboard pattern allowing arrow navigation between Keyword and AI modes.
+   * WHERE: Mode toggle radio button onKeyDown handlers.
+   */
+  const handleRadioKeyDown = (
+    event: React.KeyboardEvent<HTMLButtonElement>,
+  ) => {
+    if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
+      event.preventDefault();
+      switchMode("keyword");
+    } else if (event.key === "ArrowRight" || event.key === "ArrowDown") {
+      event.preventDefault();
+      switchMode("ai");
+    }
+  };
+
+  /**
    * SOURCE OF TRUTH KEYWORDS: askArchiveInquiry, requestArchiveAnswer, askResult, autoNavigate, filterHref
    * WHAT: Executes the plain-language archive inquiry against the backend service.
    * WHY: Fetches grounded summaries and updates isolated React state and optional URL navigation.
-   * WHERE: Triggered by user form submission inside ArchiveSearchBar.
+   * WHERE: Triggered by user form submission inside ArchiveSearchBar in AI mode.
    */
   const ask = async (rawQuestion: string) => {
     const trimmed = rawQuestion.trim();
@@ -135,13 +180,24 @@ export function ArchiveSearchBar({
 
   /**
    * SOURCE OF TRUTH KEYWORDS: onSubmitAskForm, FormEvent, rawQuestion, ArchiveSearchBar, submitButton
-   * WHAT: Handles form submission event and initiates the archive inquiry.
-   * WHY: Prevents browser page reload and duplicate in-flight requests while triggering asynchronous question evaluation.
+   * WHAT: Handles form submission event for either keyword navigation or AI inquiry evaluation.
+   * WHY: In keyword mode navigates to /catalog preserving secondary filters; in AI mode dispatches grounded inquiry request.
    * WHERE: ArchiveSearchBar form onSubmit listener and submit button click/touch trigger.
    */
   const onSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (pending) {
+      return;
+    }
+    if (enableModeToggle && mode === "keyword") {
+      const trimmed = question.trim();
+      const currentSearch =
+        typeof window !== "undefined" ? window.location.search : "";
+      const targetUrl = mergeCatalogSearchParams(currentSearch, {
+        ...(currentFilters ?? {}),
+        q: trimmed,
+      });
+      router.push(targetUrl);
       return;
     }
     void ask(question);
@@ -168,59 +224,242 @@ export function ArchiveSearchBar({
   };
 
   const open = result !== null || error !== null;
-  const containerClass = className ? `${styles.ask} ${className}` : styles.ask;
+
+  // 100% backward-compatible rendering when mode toggle is disabled or omitted
+  if (!enableModeToggle) {
+    const legacyContainerClass = className
+      ? `${styles.ask} ${className}`
+      : styles.ask;
+    const legacyPlaceholder = placeholder ?? defaultAiPlaceholder;
+
+    return (
+      <div
+        className={legacyContainerClass}
+        role={open ? "region" : undefined}
+        aria-label="Archive answer"
+      >
+        <form
+          className={`${styles.form}${pending ? ` ${styles.pending}` : ""}`}
+          onSubmit={onSubmit}
+        >
+          <button
+            type="submit"
+            className={styles.submitButton}
+            aria-label="Submit inquiry"
+            disabled={pending}
+          >
+            <svg
+              className={styles.icon}
+              viewBox="0 0 24 24"
+              aria-hidden="true"
+            >
+              <circle
+                cx="10.5"
+                cy="10.5"
+                r="6.25"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.75"
+              />
+              <path
+                d="M15.2 15.2 L20 20"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.75"
+                strokeLinecap="round"
+              />
+            </svg>
+          </button>
+          <input
+            className={styles.input}
+            type="search"
+            placeholder={legacyPlaceholder}
+            aria-label={legacyPlaceholder}
+            autoComplete="off"
+            value={question}
+            onChange={(event) => setQuestion(event.target.value)}
+          />
+          {open && !pending ? (
+            <button
+              type="button"
+              className={styles.dismiss}
+              aria-label="Close answer"
+              onClick={clearAnswer}
+            >
+              Close
+            </button>
+          ) : null}
+          <span className={styles.wave} aria-hidden="true">
+            <i />
+            <i />
+            <i />
+            <i />
+            <i />
+          </span>
+        </form>
+        {open ? (
+          <div className={styles.panel}>
+            {error ? <p className={styles.error}>{error}</p> : null}
+            {result ? (
+              <>
+                <ArchiveAnswer result={result} claimLimit={claimLimit} />
+                {showCatalogCta ? (
+                  <div className={styles.ctaRow}>
+                    <Link
+                      href={filterHref(result.filters)}
+                      className={styles.ctaButton}
+                    >
+                      Explore matching records in Catalog &rarr;
+                    </Link>
+                  </div>
+                ) : null}
+              </>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+
+  // Dual-mode rendering with accessible radio group and CTA chip
+  const rootClass = className ? `${styles.container} ${className}` : styles.container;
+  const isKeyword = mode === "keyword";
+  const activePlaceholder =
+    placeholder &&
+    placeholder !== defaultKeywordPlaceholder &&
+    placeholder !== defaultAiPlaceholder
+      ? placeholder
+      : isKeyword
+        ? defaultKeywordPlaceholder
+        : defaultAiPlaceholder;
 
   return (
-    <div className={containerClass} role={open ? "region" : undefined} aria-label="Archive answer">
-      <form className={`${styles.form}${pending ? ` ${styles.pending}` : ""}`} onSubmit={onSubmit}>
+    <div className={rootClass}>
+      <div
+        className={styles.modeToggle}
+        role="radiogroup"
+        aria-label="Search mode"
+      >
         <button
-          type="submit"
-          className={styles.submitButton}
-          aria-label="Submit inquiry"
-          disabled={pending}
+          type="button"
+          role="radio"
+          aria-checked={isKeyword}
+          tabIndex={isKeyword ? 0 : -1}
+          className={`${styles.modeButton}${isKeyword ? ` ${styles.activeMode}` : ""}`}
+          onClick={() => switchMode("keyword")}
+          onKeyDown={handleRadioKeyDown}
         >
-          <svg className={styles.icon} viewBox="0 0 24 24" aria-hidden="true">
-            <circle cx="10.5" cy="10.5" r="6.25" fill="none" stroke="currentColor" strokeWidth="1.75" />
-            <path d="M15.2 15.2 L20 20" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
-          </svg>
+          Keyword Search
         </button>
-        <input
-          className={styles.input}
-          type="search"
-          placeholder={placeholder}
-          aria-label={placeholder}
-          autoComplete="off"
-          value={question}
-          onChange={(event) => setQuestion(event.target.value)}
-        />
-        {open && !pending ? (
-          <button type="button" className={styles.dismiss} aria-label="Close answer" onClick={clearAnswer}>
-            Close
+        <button
+          type="button"
+          role="radio"
+          aria-checked={!isKeyword}
+          tabIndex={!isKeyword ? 0 : -1}
+          className={`${styles.modeButton}${!isKeyword ? ` ${styles.activeMode}` : ""}`}
+          onClick={() => switchMode("ai")}
+          onKeyDown={handleRadioKeyDown}
+        >
+          Ask AI
+        </button>
+      </div>
+
+      <div
+        className={styles.ask}
+        role={open ? "region" : undefined}
+        aria-label={open ? "Archive answer" : undefined}
+      >
+        <form
+          className={`${styles.form}${pending ? ` ${styles.pending}` : ""}`}
+          onSubmit={onSubmit}
+        >
+          <button
+            type="submit"
+            className={styles.submitButton}
+            aria-label={isKeyword ? "Search catalog" : "Submit inquiry"}
+            disabled={pending}
+          >
+            <svg
+              className={styles.icon}
+              viewBox="0 0 24 24"
+              aria-hidden="true"
+            >
+              <circle
+                cx="10.5"
+                cy="10.5"
+                r="6.25"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.75"
+              />
+              <path
+                d="M15.2 15.2 L20 20"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.75"
+                strokeLinecap="round"
+              />
+            </svg>
           </button>
-        ) : null}
-        <span className={styles.wave} aria-hidden="true">
-          <i />
-          <i />
-          <i />
-          <i />
-          <i />
-        </span>
-      </form>
-      {open ? (
-        <div className={styles.panel}>
-          {error ? <p className={styles.error}>{error}</p> : null}
-          {result ? (
-            <>
-              <ArchiveAnswer result={result} claimLimit={claimLimit} />
-              {showCatalogCta ? (
-                <div className={styles.ctaRow}>
-                  <Link href={filterHref(result.filters)} className={styles.ctaButton}>
-                    Explore matching records in Catalog &rarr;
-                  </Link>
-                </div>
-              ) : null}
-            </>
+          <input
+            className={styles.input}
+            type="search"
+            placeholder={activePlaceholder}
+            aria-label={activePlaceholder}
+            autoComplete="off"
+            value={question}
+            onChange={(event) => setQuestion(event.target.value)}
+          />
+          {open && !pending ? (
+            <button
+              type="button"
+              className={styles.dismiss}
+              aria-label="Close answer"
+              onClick={clearAnswer}
+            >
+              Close
+            </button>
           ) : null}
+          <span className={styles.wave} aria-hidden="true">
+            <i />
+            <i />
+            <i />
+            <i />
+            <i />
+          </span>
+        </form>
+        {open ? (
+          <div className={styles.panel}>
+            {error ? <p className={styles.error}>{error}</p> : null}
+            {result ? (
+              <>
+                <ArchiveAnswer result={result} claimLimit={claimLimit} />
+                {showCatalogCta ? (
+                  <div className={styles.ctaRow}>
+                    <Link
+                      href={filterHref(result.filters)}
+                      className={styles.ctaButton}
+                    >
+                      Explore matching records in Catalog &rarr;
+                    </Link>
+                  </div>
+                ) : null}
+              </>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
+
+      {isKeyword ? (
+        <div className={styles.modeCta}>
+          <button
+            type="button"
+            className={styles.ctaPrompt}
+            onClick={() => switchMode("ai")}
+          >
+            Looking for answers in plain language?{" "}
+            <span className={styles.ctaPromptHighlight}>Switch to Ask AI</span>
+          </button>
         </div>
       ) : null}
     </div>

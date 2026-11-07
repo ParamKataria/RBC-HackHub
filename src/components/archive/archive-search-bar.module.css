@@ -230,13 +230,102 @@
   border-color: hsl(var(--primary));
 }
 
+.container {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  gap: 10px;
+}
+
+.modeToggle {
+  display: inline-flex;
+  align-self: flex-start;
+  padding: 3px;
+  background: hsl(var(--secondary));
+  border: 1px solid hsl(var(--border));
+  border-radius: 9999px;
+  gap: 2px;
+}
+
+.modeButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 14px;
+  border-radius: 9999px;
+  border: none;
+  background: transparent;
+  color: hsl(var(--muted-foreground));
+  font-size: 0.8125rem;
+  font-weight: 500;
+  line-height: 1.2;
+  cursor: pointer;
+  transition: background-color 150ms ease, color 150ms ease;
+}
+
+.modeButton:hover {
+  color: hsl(var(--foreground));
+}
+
+.modeButton:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 1px;
+}
+
+.activeMode {
+  background: hsl(var(--card));
+  color: hsl(var(--foreground));
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+  font-weight: 600;
+}
+
+.modeCta {
+  display: flex;
+  align-items: center;
+  padding: 0 4px;
+}
+
+.ctaPrompt {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: none;
+  background: transparent;
+  padding: 4px 8px;
+  border-radius: 9999px;
+  cursor: pointer;
+  font-size: 0.8125rem;
+  color: hsl(var(--muted-foreground));
+  transition: color 150ms ease, background-color 150ms ease;
+  text-align: left;
+}
+
+.ctaPrompt:hover {
+  color: hsl(var(--foreground));
+  background: hsl(var(--secondary));
+}
+
+.ctaPrompt:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+}
+
+.ctaPromptHighlight {
+  color: hsl(var(--primary));
+  font-weight: 500;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .ask,
   .wave,
   .dismiss,
   .ctaButton,
   .submitButton,
-  .icon {
+  .icon,
+  .modeButton,
+  .ctaPrompt {
     transition: none;
   }
 
