@@ -16,6 +16,7 @@ import {
   askResponseSchema,
   noArchiveSourceMessage,
   noDirectAnswerMessage,
+  parseSearchParams,
   type AskClaim,
   type AskModelClaim,
   type CatalogRecord,
@@ -394,6 +395,45 @@ describe("ArchiveSearchBar and filterHref Contract", () => {
     expect(parsed.autoNavigate).toBe(true);
     expect(parsed.showCatalogCta).toBe(true);
     expect((parsed as Record<string, unknown>).persistStorage).toBeUndefined();
+  });
+
+  it("validates initialQuestion prop in archiveSearchBarPropsSchema", () => {
+    const withInitial = archiveSearchBarPropsSchema.parse({
+      initialQuestion: "Who founded the Africville church?",
+      autoNavigate: true,
+      showCatalogCta: false,
+    });
+    expect(withInitial.initialQuestion).toBe(
+      "Who founded the Africville church?",
+    );
+    expect(withInitial.autoNavigate).toBe(true);
+
+    const withoutInitial = archiveSearchBarPropsSchema.parse({
+      autoNavigate: false,
+    });
+    expect(withoutInitial.initialQuestion).toBeUndefined();
+  });
+
+  it("synchronizes inquiry handoff from filterHref to catalog query parameter rehydration", () => {
+    // 1. Homeview inquiry result produces structured filters
+    const inquiryResultFilters = { q: "Africville Baptist Church" };
+    const catalogUrl = filterHref(inquiryResultFilters);
+    expect(catalogUrl).toBe("/catalog?q=Africville+Baptist+Church");
+
+    // 2. Catalog page receives URL search parameters and parses them into filters
+    const searchParams = new URLSearchParams(catalogUrl.replace("/catalog?", ""));
+    const parsedFilters = parseSearchParams(searchParams);
+    expect(parsedFilters.q).toBe("Africville Baptist Church");
+
+    // 3. CatalogResults passes filters.q as initialQuestion to ArchiveSearchBarProps
+    const catalogSearchBarProps = archiveSearchBarPropsSchema.parse({
+      autoNavigate: true,
+      initialQuestion: parsedFilters.q,
+    });
+    expect(catalogSearchBarProps.initialQuestion).toBe(
+      "Africville Baptist Church",
+    );
+    expect(catalogSearchBarProps.autoNavigate).toBe(true);
   });
 });
 

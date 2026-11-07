@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 
 import { ArchiveAnswer, requestArchiveAnswer } from "@/src/components/archive/archive-answer";
 import styles from "@/src/components/archive/archive-search-bar.module.css";
@@ -30,14 +30,15 @@ export function filterHref(filters: SearchQuery): string {
 }
 
 /**
- * SOURCE OF TRUTH KEYWORDS: ArchiveSearchBar, ArchiveSearchBarProps, shared search bar, AI inquiry, filterHref
+ * SOURCE OF TRUTH KEYWORDS: ArchiveSearchBar, ArchiveSearchBarProps, initialQuestion, shared search bar, AI inquiry, filterHref
  * WHAT: Global reusable search bar for Ask the Archive across Catalog and Home page views.
- * WHY: Unifies natural-language inquiries, loading animations, and grounded citation panels without storage leakage.
+ * WHY: Unifies natural-language inquiries, loading animations, grounded citation panels, and URL query synchronization without storage leakage.
  * WHERE: Rendered on the /catalog route and the Home page arrival gate screen.
  */
 export function ArchiveSearchBar({
   autoNavigate = false,
   showCatalogCta = false,
+  initialQuestion,
   placeholder = "Ask the archive",
   claimLimit,
   className,
@@ -45,10 +46,16 @@ export function ArchiveSearchBar({
   onClear,
 }: ArchiveSearchBarProps) {
   const router = useRouter();
-  const [question, setQuestion] = useState("");
+  const [question, setQuestion] = useState(initialQuestion ?? "");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<AskResponse | null>(null);
+
+  useEffect(() => {
+    if (initialQuestion !== undefined) {
+      setQuestion(initialQuestion);
+    }
+  }, [initialQuestion]);
 
   /**
    * SOURCE OF TRUTH KEYWORDS: askArchiveInquiry, requestArchiveAnswer, askResult, autoNavigate, filterHref
