@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   catalogFiltersPropsSchema,
+  countActiveSecondaryFilters,
   recordTypeValues,
   type CatalogFiltersProps,
 } from "@/src/types";
@@ -20,39 +21,6 @@ import {
  */
 const fieldClassName =
   "flex h-10 w-full rounded-full border border-input bg-background px-4 text-sm text-foreground shadow-none transition-colors duration-150 hover:border-primary/60 focus-visible:border-primary motion-reduce:transition-none";
-
-/**
- * SOURCE OF TRUTH KEYWORDS: secondaryFilterKeys, catalogFacetKeys, secondaryFilterField, filterExclusions, activeFilterList
- * WHAT: Readonly tuple of catalog secondary facet parameter keys.
- * WHY: Enumerates the facet fields that can be tallied for the active filter badge and reset independently from the keyword query.
- * WHERE: app/catalog/_components/catalog-filters.tsx.
- */
-const secondaryFilterKeys = [
-  "institution",
-  "type",
-  "creator",
-  "subject",
-  "place",
-  "from",
-  "to",
-] as const;
-
-/**
- * SOURCE OF TRUTH KEYWORDS: countActiveSecondaryFilters, secondaryFacetKeys, facetBadgeCounter, filterCounter, queryFilterTally
- * WHAT: Counts how many secondary facet filters are currently populated in the query, excluding keyword query q.
- * WHY: Supplies the active filter count for the accordion toggle badge and conditional Clear filters action.
- * WHERE: app/catalog/_components/catalog-filters.tsx.
- */
-function countActiveSecondaryFilters(
-  query: CatalogFiltersProps["query"],
-): number {
-  return secondaryFilterKeys.reduce((count, key) => {
-    const value = query[key];
-    return typeof value === "string" && value.trim().length > 0
-      ? count + 1
-      : count;
-  }, 0);
-}
 
 /**
  * SOURCE OF TRUTH KEYWORDS: buildClearFiltersHref, clearSecondaryFacetsHref, resetFiltersUrl, preserveKeywordUrl, catalogResetLink
@@ -92,15 +60,31 @@ function ClearFiltersLink({
 }
 
 /**
- * SOURCE OF TRUTH KEYWORDS: CatalogFilters, collapsibleFacetPanel, activeFiltersBadge, clearFiltersPreservingQ, accessibleDisclosure, hiddenQueryParam
+ * SOURCE OF TRUTH KEYWORDS: CatalogFilters, collapsibleFacetPanel, activeFiltersBadge, clearFiltersPreservingQ, accessibleDisclosure, hiddenQueryParam, hideHeaderToggle
  * WHAT: Client component rendering an accessible, collapsible facet filter panel for refining catalog queries.
  * WHY: Collapses by default to maximize viewport visibility for Catalog Records, showing an active count badge, expand toggle, and filter reset.
- * WHERE: Rendered on the /catalog route via app/catalog/_components/catalog-results.tsx.
+ * WHERE: Rendered on the /catalog route via app/catalog/_components/catalog-search-section.tsx and catalog-results.tsx.
  */
 export function CatalogFilters(rawProps: CatalogFiltersProps) {
-  const { publishers, query, defaultOpen } =
-    catalogFiltersPropsSchema.parse(rawProps);
-  const [isOpen, setIsOpen] = useState(defaultOpen ?? false);
+  const {
+    publishers,
+    query,
+    defaultOpen,
+    isOpen: controlledIsOpen,
+    hideHeaderToggle = false,
+  } = catalogFiltersPropsSchema.parse(rawProps);
+  const [uncontrolledIsOpen, setUncontrolledIsOpen] = useState(
+    defaultOpen ?? false,
+  );
+  const isOpen =
+    controlledIsOpen !== undefined ? controlledIsOpen : uncontrolledIsOpen;
+
+  const toggleOpen = () => {
+    if (controlledIsOpen === undefined) {
+      setUncontrolledIsOpen((prev) => !prev);
+    }
+    rawProps.onToggle?.();
+  };
 
   const activeSecondaryCount = countActiveSecondaryFilters(query);
   const clearFiltersHref = buildClearFiltersHref(query.q);
@@ -109,44 +93,58 @@ export function CatalogFilters(rawProps: CatalogFiltersProps) {
       ? `Filters (${activeSecondaryCount})`
       : "Filters";
 
+  const formClassName = hideHeaderToggle
+    ? isOpen
+      ? "rounded-[20px] border border-border bg-card p-4 transition-all duration-200 sm:p-6"
+      : "pointer-events-none border-transparent bg-transparent p-0 transition-all duration-200"
+    : "rounded-[20px] border border-border bg-card p-4 transition-all duration-200 sm:p-6";
+
   return (
-    <form
-      action="/catalog"
-      className="rounded-[20px] border border-border bg-card p-4 transition-all duration-200 sm:p-6"
-    >
+    <form action="/catalog" className={formClassName}>
       <input type="hidden" name="q" defaultValue={query.q ?? ""} />
 
       {/* Header Bar: Collapsible Toggle Button and Clear Filters Action */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <button
-          type="button"
-          onClick={() => setIsOpen((prev) => !prev)}
-          aria-expanded={isOpen}
-          aria-controls="catalog-filters-panel"
-          aria-label={filterButtonLabel}
-          className="inline-flex items-center gap-2 rounded-full border border-border bg-background px-4 py-2 text-sm font-medium text-foreground transition-colors hover:border-primary/60 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
-        >
-          <SlidersHorizontal className="h-4 w-4 text-foreground/70" aria-hidden="true" />
-          <span>Filters</span>
-          {activeSecondaryCount > 0 && (
-            <span
-              data-testid="catalog-filters-badge"
-              className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-xs font-semibold text-primary-foreground"
-            >
-              {activeSecondaryCount}
-            </span>
-          )}
-          {isOpen ? (
-            <ChevronUp className="h-4 w-4 text-foreground/70 transition-transform duration-150" aria-hidden="true" />
-          ) : (
-            <ChevronDown className="h-4 w-4 text-foreground/70 transition-transform duration-150" aria-hidden="true" />
-          )}
-        </button>
+      {!hideHeaderToggle && (
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <button
+            type="button"
+            onClick={toggleOpen}
+            aria-expanded={isOpen}
+            aria-controls="catalog-filters-panel"
+            aria-label={filterButtonLabel}
+            className="inline-flex items-center gap-2 rounded-full border border-border bg-background px-4 py-2 text-sm font-medium text-foreground transition-colors hover:border-primary/60 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
+          >
+            <SlidersHorizontal
+              className="h-4 w-4 text-foreground/70"
+              aria-hidden="true"
+            />
+            <span>Filters</span>
+            {activeSecondaryCount > 0 && (
+              <span
+                data-testid="catalog-filters-badge"
+                className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-xs font-semibold text-primary-foreground"
+              >
+                {activeSecondaryCount}
+              </span>
+            )}
+            {isOpen ? (
+              <ChevronUp
+                className="h-4 w-4 text-foreground/70 transition-transform duration-150"
+                aria-hidden="true"
+              />
+            ) : (
+              <ChevronDown
+                className="h-4 w-4 text-foreground/70 transition-transform duration-150"
+                aria-hidden="true"
+              />
+            )}
+          </button>
 
-        {activeSecondaryCount > 0 && (
-          <ClearFiltersLink href={clearFiltersHref} variant="header" />
-        )}
-      </div>
+          {activeSecondaryCount > 0 && (
+            <ClearFiltersLink href={clearFiltersHref} variant="header" />
+          )}
+        </div>
+      )}
 
       {/* Collapsible Fields Panel with Smooth Grid Accordion Transition */}
       <div
@@ -157,7 +155,11 @@ export function CatalogFilters(rawProps: CatalogFiltersProps) {
         }`}
       >
         <div className="overflow-hidden">
-          <div className="mt-4 grid grid-cols-1 items-end gap-x-4 gap-y-4 border-t border-border/60 pt-4 sm:grid-cols-2 lg:grid-cols-6">
+          <div
+            className={`${
+              hideHeaderToggle ? "" : "mt-4 border-t border-border/60 pt-4 "
+            }grid grid-cols-1 items-end gap-x-4 gap-y-4 sm:grid-cols-2 lg:grid-cols-6`}
+          >
             <label className="flex flex-col gap-1.5 text-sm text-foreground lg:col-span-3">
               Institution
               <select

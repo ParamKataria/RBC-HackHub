@@ -1,8 +1,7 @@
-import { CatalogFilters } from "@/app/catalog/_components/catalog-filters";
 import { CatalogResultsView } from "@/app/catalog/_components/catalog-results-view";
+import { CatalogSearchSection } from "@/app/catalog/_components/catalog-search-section";
 import styles from "@/app/catalog/_components/catalog-results.module.css";
 import { catalogService, searchService } from "@/lib/services";
-import { ArchiveSearchBar } from "@/src/components/archive";
 import {
   catalogSearchParamsInputSchema,
   firstSearchValue,
@@ -45,9 +44,9 @@ function catalogPageHref(filters: SearchQuery, page: number): string {
 }
 
 /**
- * SOURCE OF TRUTH KEYWORDS: CatalogResults, CatalogPageProps, CatalogRecord, PostgresTotals, digitalArchiveHeader, CatalogResultsView
- * WHAT: Renders the branded catalog header, search bar, totals, filters, and one page of records with List View and Connection Graph toggle.
- * WHY: Connects server-side Supabase search results with institutional branding and interactive catalog exploration.
+ * SOURCE OF TRUTH KEYWORDS: CatalogResults, CatalogPageProps, CatalogRecord, PostgresTotals, digitalArchiveHeader, CatalogSearchSection, CatalogResultsView
+ * WHAT: Renders the branded catalog header, unified search and filter section, totals, and one page of records with List View and Connection Graph toggle.
+ * WHY: Connects server-side Supabase search results with institutional branding, unified query/facet refinement, and interactive catalog exploration.
  * WHERE: app/catalog/page.tsx inside Suspense.
  */
 export async function CatalogResults({ searchParams }: CatalogPageProps) {
@@ -139,12 +138,9 @@ export async function CatalogResults({ searchParams }: CatalogPageProps) {
         </p>
       </header>
 
-      <ArchiveSearchBar
-        enableModeToggle={true}
-        defaultMode="keyword"
-        currentFilters={filters}
-        autoNavigate={true}
-        initialQuestion={filters.q}
+      <CatalogSearchSection
+        publishers={header.publishers}
+        filters={filters}
       />
 
       <section aria-label="Catalog totals" className={`${styles.totals} overflow-hidden`}>
@@ -164,8 +160,6 @@ export async function CatalogResults({ searchParams }: CatalogPageProps) {
             .join(" · ")}
         </p>
       </section>
-
-      <CatalogFilters publishers={header.publishers} query={filters} />
 
       <CatalogResultsView
         records={records}

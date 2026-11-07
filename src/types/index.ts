@@ -14,12 +14,15 @@ export {
   catalogRecordSchema,
   catalogSearchParamsInputSchema,
   catalogSearchParamsSchema,
+  catalogSearchSectionPropsSchema,
   catalogTotalsSchema,
   catalogViewSchema,
+  countActiveSecondaryFilters,
   firstSearchValue,
   linkedListPropsSchema,
   parseCatalogSearchParams,
   recordIdSchema,
+  secondaryFilterKeys,
 } from "./catalog";
 
 export type {
@@ -32,9 +35,11 @@ export type {
   CatalogRecordPageProps,
   CatalogSearchParams,
   CatalogSearchParamsInput,
+  CatalogSearchSectionProps,
   CatalogTotals,
   CatalogView,
   LinkedListProps,
+  SecondaryFilterKey,
 } from "./catalog";
 
 export { fieldLabel, schemaFieldMap } from "./schema-map";

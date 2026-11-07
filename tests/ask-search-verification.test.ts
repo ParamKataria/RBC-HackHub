@@ -15,6 +15,7 @@ import {
 } from "@/lib/services/model-adapter";
 import { CatalogFilters } from "@/app/catalog/_components/catalog-filters";
 import { CatalogResults } from "@/app/catalog/_components/catalog-results";
+import { CatalogSearchSection } from "@/app/catalog/_components/catalog-search-section";
 import CatalogPage from "@/app/catalog/page";
 import {
   ArchiveSearchBar,
@@ -28,6 +29,9 @@ import { catalogService, searchService } from "@/lib/services";
 import {
   archiveSearchBarPropsSchema,
   askResponseSchema,
+  catalogFiltersPropsSchema,
+  catalogSearchSectionPropsSchema,
+  countActiveSecondaryFilters,
   noArchiveSourceMessage,
   noDirectAnswerMessage,
   parseSearchParams,
@@ -1925,6 +1929,218 @@ describe("ArchiveSearchBar Integrated Filter Pill Contract (Ticket 02)", () => {
     expect(clearAiMock).not.toHaveBeenCalled();
   });
 });
+
+/**
+ * SOURCE OF TRUTH KEYWORDS: ticket03UnifiedFilterRelocationTest, CatalogSearchSection, CatalogFilters, CatalogResults, controlledFilterExpansion, hideHeaderToggle
+ * WHAT: Unit and integration tests for Ticket 03 unified filter panel relocation, controlled expansion, and adjacent placement.
+ * WHY: Verifies that CatalogFilters supports controlled isOpen and hideHeaderToggle, that CatalogSearchSection unifies search and filters, and that CatalogResults places filters above totals.
+ * WHERE: tests/ask-search-verification.test.ts (verifies Ticket 03).
+ */
+describe("Ticket 03: Unified Filter Panel Relocation and Controlled Expansion", () => {
+  const samplePublishers = [
+    "BCCNS",
+    "Nova Scotia Archives",
+    "Dalhousie University",
+  ];
+
+  it("validates catalogFiltersPropsSchema with isOpen and hideHeaderToggle", () => {
+    const validProps = {
+      publishers: samplePublishers,
+      query: { q: "Africville" },
+      isOpen: true,
+      hideHeaderToggle: true,
+    };
+    const parsed = catalogFiltersPropsSchema.parse(validProps);
+    expect(parsed.isOpen).toBe(true);
+    expect(parsed.hideHeaderToggle).toBe(true);
+  });
+
+  it("omits the redundant header toggle button when hideHeaderToggle is true and respects controlled isOpen=true", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(CatalogFilters, {
+        publishers: samplePublishers,
+        query: { q: "Africville", institution: "BCCNS" },
+        isOpen: true,
+        hideHeaderToggle: true,
+      }),
+    );
+
+    // Redundant header toggle bar is omitted
+    expect(html).not.toContain('<button type="button" aria-controls="catalog-filters-panel"');
+    expect(html).not.toContain('data-testid="catalog-filters-badge"');
+
+    // Filter panel is expanded
+    expect(html).toContain('id="catalog-filters-panel"');
+    expect(html).toContain("grid-rows-[1fr]");
+    expect(html).not.toContain('id="catalog-filters-panel" hidden=""');
+
+    // Retains hidden keyword input and facet fields
+    expect(html).toContain('name="q"');
+    expect(html).toContain('value="Africville"');
+    expect(html).toContain('name="institution"');
+
+    // Retains one-click "Clear filters" in panel footer preserving q
+    expect(html).toContain("Clear filters");
+    expect(html).toContain('href="/catalog?q=Africville"');
+  });
+
+  it("renders collapsed panel when hideHeaderToggle is true and controlled isOpen=false", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(CatalogFilters, {
+        publishers: samplePublishers,
+        query: { q: "Africville" },
+        isOpen: false,
+        hideHeaderToggle: true,
+      }),
+    );
+
+    expect(html).not.toContain('<button type="button" aria-controls="catalog-filters-panel"');
+    expect(html).toContain('id="catalog-filters-panel"');
+    expect(html).toContain("grid-rows-[0fr]");
+    expect(html).toContain('hidden=""');
+  });
+
+  it("accurately tallies active secondary filters and ignores keyword query q and blank strings", () => {
+    expect(countActiveSecondaryFilters({})).toBe(0);
+    expect(countActiveSecondaryFilters({ q: "Africville" })).toBe(0);
+    expect(
+      countActiveSecondaryFilters({
+        q: "Africville",
+        institution: "BCCNS",
+        creator: "Addie States",
+      }),
+    ).toBe(2);
+    expect(
+      countActiveSecondaryFilters({
+        institution: "   ",
+        place: "",
+      }),
+    ).toBe(0);
+    expect(
+      countActiveSecondaryFilters({
+        institution: "BCCNS",
+        type: "document",
+        creator: "Addie States",
+        subject: "Africville",
+        place: "Halifax",
+        from: "1960",
+        to: "1970",
+      }),
+    ).toBe(7);
+  });
+
+  it("validates catalogSearchSectionPropsSchema with publishers and filters", () => {
+    const valid = {
+      publishers: samplePublishers,
+      filters: { q: "Africville", institution: "BCCNS" },
+    };
+    const parsed = catalogSearchSectionPropsSchema.parse(valid);
+    expect(parsed.publishers).toEqual(samplePublishers);
+    expect(parsed.filters.institution).toBe("BCCNS");
+  });
+
+  it("renders ArchiveSearchBar with integrated filter pill and mounts CatalogFilters directly adjacent", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(CatalogSearchSection, {
+        publishers: samplePublishers,
+        filters: {
+          q: "Africville",
+          institution: "BCCNS",
+          type: "photograph",
+        },
+      }),
+    );
+
+    // Renders dual-mode ArchiveSearchBar with keyword mode active
+    expect(html).toContain('role="radiogroup"');
+    expect(html).toContain('aria-checked="true"');
+    expect(html).toContain("Keyword Search");
+
+    // Renders integrated filter pill button with active filter count badge (2)
+    expect(html).toContain('aria-controls="catalog-filters-panel"');
+    expect(html).toContain('data-testid="search-bar-filter-badge"');
+    expect(html).toContain("(2)");
+
+    // Renders input with initial keyword query
+    expect(html).toContain('value="Africville"');
+
+    // Mounts CatalogFilters directly adjacent without redundant header toggle
+    expect(html).not.toContain('<button type="button" aria-controls="catalog-filters-panel" aria-label="Filters (2)"');
+    expect(html).toContain('id="catalog-filters-panel"');
+  });
+
+  it("renders CatalogResults with search and filter section relocated above totals and removes disconnected filter block below", async () => {
+    vi.spyOn(catalogService, "getCatalogHeader").mockResolvedValue({
+      totals: {
+        records: 42,
+        sources: 5,
+        people: 12,
+        places: 8,
+        subjects: 15,
+        communities: 4,
+        recordPeople: 18,
+        recordPlaces: 14,
+        recordSubjects: 22,
+      },
+      publishers: ["Black Cultural Centre for Nova Scotia"],
+    });
+
+    vi.spyOn(searchService, "searchRecords").mockResolvedValue({
+      count: 1,
+      filters: {},
+      results: [
+        {
+          id: "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+          dc_title: "Africville Records",
+          dc_identifier: "BCCNS-1960-001",
+          dc_publisher: "Black Cultural Centre for Nova Scotia",
+          dc_source: "BCCNS Archives",
+          dc_type: "document",
+          dc_description: "Community documentation",
+          dc_creator: "Addie States",
+          dc_subject: ["Africville"],
+          dc_date: "1960",
+          date_text: "1960",
+          dcterms_spatial: "Africville",
+          dcterms_temporal: "20th Century",
+          dc_rights: "In Copyright",
+          dcterms_access_rights: "Open access",
+          dcterms_provenance: "Donated",
+          bccns_community: ["Africville"],
+          bccns_access_status: "available",
+          bccns_digitized: true,
+        },
+      ],
+    });
+
+    const resultsElement = await CatalogResults({
+      searchParams: Promise.resolve({
+        institution: "Black Cultural Centre for Nova Scotia",
+      }),
+    });
+    const resultsHtml = renderToStaticMarkup(resultsElement);
+
+    // Filter panel is mounted above catalog totals in DOM sequence
+    const filterPanelIndex = resultsHtml.indexOf('id="catalog-filters-panel"');
+    const totalsIndex = resultsHtml.indexOf('aria-label="Catalog totals"');
+
+    expect(filterPanelIndex).toBeGreaterThan(-1);
+    expect(totalsIndex).toBeGreaterThan(-1);
+    expect(filterPanelIndex).toBeLessThan(totalsIndex);
+
+    // Only one filter form/panel exists in the layout (no disconnected block below totals)
+    const filterPanelMatches = resultsHtml.match(/id="catalog-filters-panel"/g);
+    expect(filterPanelMatches).toHaveLength(1);
+
+    const actionMatches = resultsHtml.match(/action="\/catalog"/g);
+    expect(actionMatches).toHaveLength(1);
+
+    // Integrated filter pill button is present in search section above totals
+    expect(resultsHtml).toContain('aria-controls="catalog-filters-panel"');
+    expect(resultsHtml).toContain('data-testid="search-bar-filter-badge"');
+  });
+});
+
 
 
 

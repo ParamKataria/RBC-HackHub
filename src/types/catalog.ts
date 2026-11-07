@@ -186,13 +186,67 @@ export const catalogRecordPagePropsSchema = z.object({
 
 export type CatalogRecordPageProps = z.infer<typeof catalogRecordPagePropsSchema>;
 
+/**
+ * SOURCE OF TRUTH KEYWORDS: secondaryFilterKeys, countActiveSecondaryFilters, SecondaryFilterKey, facetBadgeCounter, filterCounter
+ * WHAT: Readonly tuple of catalog secondary facet parameter keys and tally function for active secondary filters excluding q.
+ * WHY: Canonical calculation for filter pill badge and accordion clear button shared between server and client components.
+ * WHERE: src/types/catalog.ts, app/catalog/_components/catalog-filters.tsx, and app/catalog/_components/catalog-search-section.tsx.
+ */
+export const secondaryFilterKeys = [
+  "institution",
+  "type",
+  "creator",
+  "subject",
+  "place",
+  "from",
+  "to",
+] as const;
+
+export type SecondaryFilterKey = (typeof secondaryFilterKeys)[number];
+
+export function countActiveSecondaryFilters(
+  query: Partial<Record<string, string | undefined>>,
+): number {
+  return secondaryFilterKeys.reduce((count, key) => {
+    const value = query[key];
+    return typeof value === "string" && value.trim().length > 0
+      ? count + 1
+      : count;
+  }, 0);
+}
+
+/**
+ * SOURCE OF TRUTH KEYWORDS: catalogFiltersPropsSchema, CatalogFiltersProps, hideHeaderToggle, controlledFilterExpansion, collapsibleFacetPanel, onToggle
+ * WHAT: Validated props schema and type definition for the CatalogFilters collapsible facet component.
+ * WHY: Enforces strict typing for publishers, query parameters, controlled visibility state, and header toggle suppression.
+ * WHERE: src/types/catalog.ts, app/catalog/_components/catalog-filters.tsx, and app/catalog/_components/catalog-search-section.tsx.
+ */
 export const catalogFiltersPropsSchema = z.object({
   publishers: z.array(z.string()),
   query: searchQuerySchema,
   defaultOpen: z.boolean().optional(),
+  isOpen: z.boolean().optional(),
+  hideHeaderToggle: z.boolean().optional(),
 });
 
-export type CatalogFiltersProps = z.infer<typeof catalogFiltersPropsSchema>;
+export type CatalogFiltersProps = z.infer<typeof catalogFiltersPropsSchema> & {
+  onToggle?: () => void;
+};
+
+/**
+ * SOURCE OF TRUTH KEYWORDS: catalogSearchSectionPropsSchema, CatalogSearchSectionProps, CatalogSearchSection, searchCoordinatorProps, searchFiltersSync
+ * WHAT: Validated props schema and TypeScript type for the interactive CatalogSearchSection client coordinator.
+ * WHY: Enforces strict type validation for institutional publisher lists and multi-facet search filters.
+ * WHERE: src/types/catalog.ts and app/catalog/_components/catalog-search-section.tsx.
+ */
+export const catalogSearchSectionPropsSchema = z.object({
+  publishers: z.array(z.string()),
+  filters: searchQuerySchema,
+});
+
+export type CatalogSearchSectionProps = z.infer<
+  typeof catalogSearchSectionPropsSchema
+>;
 
 export const linkedListPropsSchema = z.object({
   title: z.string().min(1),
