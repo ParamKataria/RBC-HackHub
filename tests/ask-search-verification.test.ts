@@ -1,5 +1,5 @@
 /**
- * SOURCE OF TRUTH KEYWORDS: askSearchVerificationTest, InMemoryModelAdapter, ArchiveSearchBar, filterHref, zeroStorageSideEffects, inquiryHandoff, ticket04ComprehensiveVerification
+ * SOURCE OF TRUTH KEYWORDS: askSearchVerificationTest, InMemoryModelAdapter, ArchiveSearchBar, filterHref, zeroStorageSideEffects, inquiryHandoff, ticket04EndToEndVerification
  * WHAT: Unit, accessibility, and seam verification tests for inquiry execution, filterHref serialization, collapsible filters, and dual-mode search bar state.
  * WHY: Proves deterministic claim grounding, zero sessionStorage side effects, accessible button contracts, URL query synchronization, and complete Ticket 04 verification.
  * WHERE: tests/ask-search-verification.test.ts (promised in lib/services/ask.ts line 7 and Ticket 04).
@@ -2140,6 +2140,486 @@ describe("Ticket 03: Unified Filter Panel Relocation and Controlled Expansion", 
     expect(resultsHtml).toContain('data-testid="search-bar-filter-badge"');
   });
 });
+
+/**
+ * SOURCE OF TRUTH KEYWORDS: ticket04EndToEndVerificationSuite, stickyNavStyling, brandWordmarkCatalog, headerHierarchyEyebrow, filterPillKeywordAiToggle, panelAdjacentExpansion, facetPreservationHiddenQ, legacyBackwardCompatibility, waiAriaAccessibilityContract
+ * WHAT: Dedicated End-to-End verification and accessibility test suite for Ticket 04.
+ * WHY: Validates sticky navigation bar, branded header hierarchy, integrated filter pill, AI mode suppression, adjacent panel relocation, query preservation, legacy safety, and WAI-ARIA contracts.
+ * WHERE: tests/ask-search-verification.test.ts (Ticket 04: End-to-End Verification and Accessibility Test Suite).
+ */
+describe("Ticket 04: End-to-End Verification and Accessibility Test Suite", () => {
+  const e2eSamplePublishers = [
+    "Black Cultural Centre for Nova Scotia",
+    "Nova Scotia Archives",
+    "Dalhousie University",
+  ];
+
+  const e2eRecord: CatalogRecord = {
+    id: "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+    dc_title: "Preston Cultural Heritage Ledger",
+    dc_identifier: "BCCNS-1975-088",
+    dc_publisher: "Black Cultural Centre for Nova Scotia",
+    dc_source: "BCCNS Physical Archives",
+    dc_type: "document",
+    dc_description: "Community ledger preserving Preston heritage.",
+    dc_creator: "Community Historian",
+    dc_subject: ["Preston", "Genealogy", "Oral History"],
+    dc_date: "1975",
+    date_text: "1975",
+    dcterms_spatial: "Preston",
+    dcterms_temporal: "20th Century",
+    dc_rights: "In Copyright",
+    dcterms_access_rights: "Open access",
+    dcterms_provenance: "Donated by Preston Elders",
+    bccns_community: ["Preston"],
+    bccns_access_status: "available",
+    bccns_digitized: true,
+  };
+
+  it("verifies sticky navigation bar styling classes and BCCNS Catalog brand wordmark", () => {
+    const pageMarkup = renderToStaticMarkup(
+      React.createElement(CatalogPage, {
+        searchParams: Promise.resolve({}),
+      }),
+    );
+
+    // Sticky nav container with backdrop blur, subtle theme border tokens, and fixed z-index
+    expect(pageMarkup).toContain("sticky top-0 z-40");
+    expect(pageMarkup).toContain("bg-background/80");
+    expect(pageMarkup).toContain("backdrop-blur-md");
+    expect(pageMarkup).toContain("border-b border-border/80");
+
+    // BCCNS Catalog brand wordmark link
+    expect(pageMarkup).toContain('href="/catalog"');
+    expect(pageMarkup).toContain("BCCNS Catalog");
+    expect(pageMarkup).toContain(
+      "font-serif text-xl tracking-tight text-foreground transition-colors hover:text-foreground/80",
+    );
+
+    // Right-aligned actions: Home link and theme switcher
+    expect(pageMarkup).toContain('href="/"');
+    expect(pageMarkup).toContain("Home");
+    expect(pageMarkup).toContain("text-muted-foreground transition-colors hover:text-foreground");
+  });
+
+  it("verifies catalog header hierarchy with eyebrow kicker, display title, and descriptive subtitle", async () => {
+    vi.spyOn(catalogService, "getCatalogHeader").mockResolvedValue({
+      totals: {
+        records: 48,
+        sources: 6,
+        people: 16,
+        places: 9,
+        subjects: 20,
+        communities: 5,
+        recordPeople: 22,
+        recordPlaces: 18,
+        recordSubjects: 28,
+      },
+      publishers: e2eSamplePublishers,
+    });
+
+    vi.spyOn(searchService, "searchRecords").mockResolvedValue({
+      count: 1,
+      filters: {},
+      results: [e2eRecord],
+    });
+
+    const resultsElement = await CatalogResults({
+      searchParams: Promise.resolve({}),
+    });
+    const resultsMarkup = renderToStaticMarkup(resultsElement);
+
+    // Branded eyebrow kicker orienting visitors to the institutional authority
+    expect(resultsMarkup).toContain("Black Cultural Centre for Nova Scotia");
+    expect(resultsMarkup).toContain(
+      "text-xs font-semibold uppercase tracking-widest text-muted-foreground",
+    );
+
+    // Distinguished title in display serif typography
+    expect(resultsMarkup).toContain("Digital Archive Catalog");
+    expect(resultsMarkup).toContain(
+      "font-serif text-4xl font-medium tracking-tight text-foreground sm:text-5xl",
+    );
+
+    // Informative descriptive subtitle explaining dual discovery options
+    expect(resultsMarkup).toContain(
+      "Explore primary records, oral histories, and community lineages, or switch to Ask AI for grounded historical inquiries.",
+    );
+    expect(resultsMarkup).toContain(
+      "mt-1 max-w-2xl text-sm leading-relaxed text-foreground/75 sm:text-base",
+    );
+
+    // Deprecated unbranded header copy is completely absent
+    expect(resultsMarkup).not.toContain("Black history catalog");
+    expect(resultsMarkup).not.toContain(
+      "Ask a question in plain language, or narrow the records by institution, type, place, and date.",
+    );
+  });
+
+  it("verifies filter pill button renders in keyword mode with FiFilter icon, 'Filters' text, type='button', aria-expanded, and active badge", () => {
+    // 1. Without active secondary filters: clean pill button with no badge
+    const htmlZeroFilters = renderToStaticMarkup(
+      React.createElement(ArchiveSearchBar, {
+        enableModeToggle: true,
+        defaultMode: "keyword",
+        enableFilterPill: true,
+        filterPanelOpen: false,
+        activeFilterCount: 0,
+      }),
+    );
+
+    expect(htmlZeroFilters).toContain('aria-controls="catalog-filters-panel"');
+    expect(htmlZeroFilters).toContain('aria-expanded="false"');
+    expect(htmlZeroFilters).toContain('aria-label="Filters"');
+    expect(htmlZeroFilters).toContain('type="button"');
+    expect(htmlZeroFilters).toContain("<span>Filters</span>");
+    expect(htmlZeroFilters).not.toContain('data-testid="search-bar-filter-badge"');
+
+    // FiFilter SVG icon exists inside pill button
+    const pillMatches = htmlZeroFilters.match(
+      /<button[^>]*aria-controls="catalog-filters-panel"[^>]*>[\s\S]*?<\/button>/,
+    );
+    expect(pillMatches).not.toBeNull();
+    expect(pillMatches?.[0]).toContain("<svg");
+
+    // 2. With active secondary filters: active badge and expanded aria state
+    const htmlActiveFilters = renderToStaticMarkup(
+      React.createElement(ArchiveSearchBar, {
+        enableModeToggle: true,
+        defaultMode: "keyword",
+        enableFilterPill: true,
+        filterPanelOpen: true,
+        activeFilterCount: 2,
+      }),
+    );
+
+    expect(htmlActiveFilters).toContain('aria-expanded="true"');
+    expect(htmlActiveFilters).toContain('aria-label="Filters (2 active)"');
+    expect(htmlActiveFilters).toContain('data-testid="search-bar-filter-badge"');
+    expect(htmlActiveFilters).toContain("(2)");
+  });
+
+  it("verifies filter pill button is omitted from DOM in Ask AI mode, and switching to AI mode triggers closing open filter panel", () => {
+    // 1. In Ask AI mode, the filter pill is completely omitted from markup
+    const htmlAi = renderToStaticMarkup(
+      React.createElement(ArchiveSearchBar, {
+        enableModeToggle: true,
+        defaultMode: "ai",
+        enableFilterPill: true,
+        filterPanelOpen: true,
+        activeFilterCount: 3,
+      }),
+    );
+
+    expect(htmlAi).not.toContain('aria-controls="catalog-filters-panel"');
+    expect(htmlAi).not.toContain("search-bar-filter-badge");
+    expect(htmlAi).not.toContain("<span>Filters</span>");
+
+    // 2. Switching to AI mode when filter panel is open collapses the panel
+    const onToggleMock = vi.fn();
+    const clearAiMock = vi.fn();
+    const handled = handleModeSwitch("keyword", "ai", {
+      filterPanelOpen: true,
+      onToggleFilterPanel: onToggleMock,
+      clearAiResults: clearAiMock,
+    });
+    expect(handled).toBe(true);
+    expect(onToggleMock).toHaveBeenCalledTimes(1);
+
+    // 3. Switching to AI mode when filter panel was already closed does not call onToggleFilterPanel
+    const onToggleClosedMock = vi.fn();
+    const handledClosed = handleModeSwitch("keyword", "ai", {
+      filterPanelOpen: false,
+      onToggleFilterPanel: onToggleClosedMock,
+      clearAiResults: clearAiMock,
+    });
+    expect(handledClosed).toBe(true);
+    expect(onToggleClosedMock).not.toHaveBeenCalled();
+
+    // 4. Switching back to keyword mode clears AI results and does not toggle the filter panel
+    const handledBack = handleModeSwitch("ai", "keyword", {
+      filterPanelOpen: false,
+      onToggleFilterPanel: onToggleMock,
+      clearAiResults: clearAiMock,
+    });
+    expect(handledBack).toBe(true);
+    expect(clearAiMock).toHaveBeenCalledTimes(1);
+    expect(onToggleMock).toHaveBeenCalledTimes(1); // unchanged from step 2
+  });
+
+  it("verifies filter panel expands directly adjacent underneath search bar container and above catalog totals", async () => {
+    vi.spyOn(catalogService, "getCatalogHeader").mockResolvedValue({
+      totals: {
+        records: 30,
+        sources: 4,
+        people: 10,
+        places: 6,
+        subjects: 12,
+        communities: 3,
+        recordPeople: 15,
+        recordPlaces: 11,
+        recordSubjects: 17,
+      },
+      publishers: e2eSamplePublishers,
+    });
+
+    vi.spyOn(searchService, "searchRecords").mockResolvedValue({
+      count: 1,
+      filters: {},
+      results: [e2eRecord],
+    });
+
+    // 1. In CatalogSearchSection, search bar and filter accordion are adjacent children in gap-4 layout
+    const searchSectionMarkup = renderToStaticMarkup(
+      React.createElement(CatalogSearchSection, {
+        publishers: e2eSamplePublishers,
+        filters: { q: "Africville", institution: "Black Cultural Centre for Nova Scotia" },
+      }),
+    );
+    expect(searchSectionMarkup).toContain("flex flex-col gap-4");
+    expect(searchSectionMarkup).toContain('aria-controls="catalog-filters-panel"');
+    expect(searchSectionMarkup).toContain('id="catalog-filters-panel"');
+    // Redundant filter header toggle is omitted in unified layout
+    expect(searchSectionMarkup).not.toContain(
+      '<button type="button" aria-controls="catalog-filters-panel" aria-label="Filters',
+    );
+
+    // 2. In CatalogResults, search and filter section is rendered above totals
+    const resultsElement = await CatalogResults({
+      searchParams: Promise.resolve({
+        q: "Africville",
+        institution: "Black Cultural Centre for Nova Scotia",
+      }),
+    });
+    const resultsMarkup = renderToStaticMarkup(resultsElement);
+
+    const filterIndex = resultsMarkup.indexOf('id="catalog-filters-panel"');
+    const totalsIndex = resultsMarkup.indexOf('aria-label="Catalog totals"');
+    expect(filterIndex).toBeGreaterThan(-1);
+    expect(totalsIndex).toBeGreaterThan(-1);
+    expect(filterIndex).toBeLessThan(totalsIndex);
+
+    // Exactly 1 filter panel instance and 1 form action
+    expect(resultsMarkup.match(/id="catalog-filters-panel"/g)).toHaveLength(1);
+    expect(resultsMarkup.match(/action="\/catalog"/g)).toHaveLength(1);
+
+    // 3. Smooth accordion transition tokens
+    const collapsedMarkup = renderToStaticMarkup(
+      React.createElement(CatalogFilters, {
+        publishers: e2eSamplePublishers,
+        query: {},
+        isOpen: false,
+        hideHeaderToggle: true,
+      }),
+    );
+    expect(collapsedMarkup).toContain("grid-rows-[0fr]");
+    expect(collapsedMarkup).toContain("transition-[grid-template-rows]");
+    expect(collapsedMarkup).toContain('hidden=""');
+
+    const expandedMarkup = renderToStaticMarkup(
+      React.createElement(CatalogFilters, {
+        publishers: e2eSamplePublishers,
+        query: {},
+        isOpen: true,
+        hideHeaderToggle: true,
+      }),
+    );
+    expect(expandedMarkup).toContain("grid-rows-[1fr]");
+    expect(expandedMarkup).toContain("transition-[grid-template-rows]");
+    expect(expandedMarkup).not.toContain('hidden=""');
+  });
+
+  it("verifies submitting filters preserves hidden q input and active secondary facet parameters in URL query", () => {
+    const filterMarkup = renderToStaticMarkup(
+      React.createElement(CatalogFilters, {
+        publishers: e2eSamplePublishers,
+        query: {
+          q: "Africville Church & Community",
+          institution: "Black Cultural Centre for Nova Scotia",
+          type: "document",
+          creator: "Addie States",
+          subject: "Genealogy",
+          place: "Africville",
+          from: "1960",
+          to: "1970",
+        },
+        isOpen: true,
+        hideHeaderToggle: true,
+      }),
+    );
+
+    // Form action points to /catalog
+    expect(filterMarkup).toContain('action="/catalog"');
+
+    // Hidden input preserves active keyword query q
+    expect(filterMarkup).toContain(
+      '<input type="hidden" name="q" value="Africville Church &amp; Community"',
+    );
+
+    // No visible duplicate input for q
+    expect(filterMarkup).not.toContain('<input name="q"');
+    expect(filterMarkup).not.toContain("Search all sources");
+
+    // All 7 secondary facet inputs and selects exist
+    expect(filterMarkup).toContain('name="institution"');
+    expect(filterMarkup).toContain('name="type"');
+    expect(filterMarkup).toContain('name="creator"');
+    expect(filterMarkup).toContain('name="subject"');
+    expect(filterMarkup).toContain('name="place"');
+    expect(filterMarkup).toContain('name="from"');
+    expect(filterMarkup).toContain('name="to"');
+
+    // "Clear filters" action preserves active keyword query q while purging secondary facets
+    expect(filterMarkup).toContain("Clear filters");
+    expect(filterMarkup).toContain(
+      'href="/catalog?q=Africville%20Church%20%26%20Community"',
+    );
+
+    // URL merge preserves secondary facet parameters on keyword submission
+    const existingSearch =
+      "?institution=Black+Cultural+Centre+for+Nova+Scotia&type=document&place=Africville&page=4";
+    const mergedUrl = mergeCatalogSearchParams(existingSearch, {
+      institution: "Black Cultural Centre for Nova Scotia",
+      type: "document",
+      place: "Africville",
+      q: "Baptist Church records",
+    });
+
+    expect(mergedUrl).toBe(
+      "/catalog?institution=Black+Cultural+Centre+for+Nova+Scotia&type=document&place=Africville&q=Baptist+Church+records",
+    );
+    const parsed = parseSearchParams(
+      new URLSearchParams(mergedUrl.replace("/catalog?", "")),
+    );
+    expect(parsed.institution).toBe("Black Cultural Centre for Nova Scotia");
+    expect(parsed.type).toBe("document");
+    expect(parsed.place).toBe("Africville");
+    expect(parsed.q).toBe("Baptist Church records");
+    expect(new URLSearchParams(mergedUrl.replace("/catalog?", "")).has("page")).toBe(
+      false,
+    );
+  });
+
+  it("verifies backward compatibility for legacy views without filter pills or mode toggles", () => {
+    // 1. ArchiveSearchBar without enableFilterPill
+    const omittedPillMarkup = renderToStaticMarkup(
+      React.createElement(ArchiveSearchBar, {
+        enableModeToggle: true,
+        defaultMode: "keyword",
+      }),
+    );
+    expect(omittedPillMarkup).not.toContain('aria-controls="catalog-filters-panel"');
+    expect(omittedPillMarkup).not.toContain("search-bar-filter-badge");
+    expect(omittedPillMarkup).not.toContain("<span>Filters</span>");
+
+    // 2. ArchiveSearchBar with enableFilterPill=false
+    const explicitFalsePillMarkup = renderToStaticMarkup(
+      React.createElement(ArchiveSearchBar, {
+        enableModeToggle: true,
+        defaultMode: "keyword",
+        enableFilterPill: false,
+      }),
+    );
+    expect(explicitFalsePillMarkup).not.toContain('aria-controls="catalog-filters-panel"');
+    expect(explicitFalsePillMarkup).not.toContain("search-bar-filter-badge");
+    expect(explicitFalsePillMarkup).not.toContain("<span>Filters</span>");
+
+    // 3. Legacy 3D museum rotunda invocation (bccns-archive-experience.tsx)
+    const legacyMarkup = renderToStaticMarkup(
+      React.createElement(ArchiveSearchBar, {
+        autoNavigate: false,
+        showCatalogCta: true,
+      }),
+    );
+    expect(legacyMarkup).not.toContain('role="radiogroup"');
+    expect(legacyMarkup).not.toContain('aria-controls="catalog-filters-panel"');
+    expect(legacyMarkup).toContain('placeholder="Ask a question in plain language..."');
+    expect(legacyMarkup).toContain('aria-label="Submit inquiry"');
+    expect(legacyMarkup).toContain('type="submit"');
+
+    // 4. Standalone CatalogFilters invocation without hideHeaderToggle preserves disclosure toggle
+    const standaloneFiltersMarkup = renderToStaticMarkup(
+      React.createElement(CatalogFilters, {
+        publishers: e2eSamplePublishers,
+        query: { institution: "Black Cultural Centre for Nova Scotia" },
+        hideHeaderToggle: false,
+      }),
+    );
+    expect(standaloneFiltersMarkup).toContain('aria-controls="catalog-filters-panel"');
+    expect(standaloneFiltersMarkup).toContain('type="button"');
+    expect(standaloneFiltersMarkup).toContain('data-testid="catalog-filters-badge"');
+    expect(standaloneFiltersMarkup).toContain("Filters (1)");
+  });
+
+  it("verifies WAI-ARIA accessibility contracts across navigation, header, mode toggle, filter pill, and collapsible panel", () => {
+    // 1. Landmark navigation and heading hierarchy
+    const pageMarkup = renderToStaticMarkup(
+      React.createElement(CatalogPage, {
+        searchParams: Promise.resolve({}),
+      }),
+    );
+    expect(pageMarkup).toContain("<nav");
+    expect(pageMarkup).toContain('href="/catalog"');
+    expect(pageMarkup).toContain('href="/"');
+
+    // 2. Mode toggle radiogroup accessibility
+    const searchMarkup = renderToStaticMarkup(
+      React.createElement(ArchiveSearchBar, {
+        enableModeToggle: true,
+        defaultMode: "keyword",
+        enableFilterPill: true,
+        filterPanelOpen: false,
+        activeFilterCount: 1,
+      }),
+    );
+    expect(searchMarkup).toContain('role="radiogroup"');
+    expect(searchMarkup).toContain('aria-label="Search mode"');
+    expect(searchMarkup).toContain('role="radio"');
+    expect(searchMarkup).toContain('aria-checked="true"');
+    expect(searchMarkup).toContain('tabindex="0"');
+    expect(searchMarkup).toContain('aria-checked="false"');
+    expect(searchMarkup).toContain('tabindex="-1"');
+
+    // 3. Accessible search input and submission button
+    expect(searchMarkup).toContain("<form");
+    expect(searchMarkup).toContain('type="search"');
+    expect(searchMarkup).toContain(
+      'aria-label="Search title, description, subject, place, or community..."',
+    );
+    expect(searchMarkup).toContain(
+      'placeholder="Search title, description, subject, place, or community..."',
+    );
+    expect(searchMarkup).toContain('type="submit"');
+    expect(searchMarkup).toContain('aria-label="Search catalog"');
+
+    // 4. Filter pill button accessibility
+    expect(searchMarkup).toContain('type="button"');
+    expect(searchMarkup).toContain('aria-controls="catalog-filters-panel"');
+    expect(searchMarkup).toContain('aria-expanded="false"');
+    expect(searchMarkup).toContain('aria-label="Filters (1 active)"');
+
+    // 5. Arrow key keyboard navigation helper implements WAI-ARIA roving tabindex
+    const switchModeSpy = vi.fn();
+    const focusKeywordSpy = vi.fn();
+    const focusAiSpy = vi.fn();
+    const callbacks = {
+      switchMode: switchModeSpy,
+      focusKeyword: focusKeywordSpy,
+      focusAi: focusAiSpy,
+    };
+
+    expect(handleRadioArrowNavigation("ArrowRight", callbacks)).toBe(true);
+    expect(switchModeSpy).toHaveBeenCalledWith("ai");
+    expect(focusAiSpy).toHaveBeenCalledTimes(1);
+
+    expect(handleRadioArrowNavigation("ArrowLeft", callbacks)).toBe(true);
+    expect(switchModeSpy).toHaveBeenCalledWith("keyword");
+    expect(focusKeywordSpy).toHaveBeenCalledTimes(1);
+
+    expect(handleRadioArrowNavigation("Tab", callbacks)).toBe(false);
+  });
+});
+
 
 
 

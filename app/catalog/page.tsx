@@ -2,7 +2,6 @@ import Link from "next/link";
 import { Suspense } from "react";
 
 import { CatalogResults } from "@/app/catalog/_components";
-import { ThemeSwitcher } from "@/components/theme-switcher";
 import type { CatalogPageProps } from "@/src/types";
 
 /**
@@ -29,7 +28,6 @@ export default function CatalogPage({ searchParams }: CatalogPageProps) {
             >
               Home
             </Link>
-            <ThemeSwitcher />
           </div>
         </div>
       </nav>
