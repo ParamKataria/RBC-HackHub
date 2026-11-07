@@ -28,9 +28,11 @@ interface ThreadAnswer {
 export function ArchiveAsk({
   view,
   glance,
+  placement = "header",
 }: {
   view: AskView | null;
   glance: ArchiveGlance | null;
+  placement?: "header" | "view";
 }) {
   const [question, setQuestion] = useState("");
   const [focused, setFocused] = useState(false);
@@ -191,7 +193,7 @@ export function ArchiveAsk({
     .join(" ");
 
   return (
-    <div className="bccns-header-search">
+    <div className={placement === "view" ? "bccns-header-search bccns-ask-view-search" : "bccns-header-search"}>
       <div className={surfaceClass} role={revealed ? "dialog" : undefined} aria-label="Archive answer">
         <span className="bccns-siri-rim" aria-hidden="true" />
         <form onSubmit={onSubmit}>

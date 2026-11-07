@@ -1,4 +1,4 @@
-import { Suspense } from "react";
+import { Suspense, ViewTransition } from "react";
 
 import { archiveService } from "@/lib/services";
 import { BccnsArchiveExperience } from "@/src/components/archive";
@@ -18,14 +18,18 @@ export default function HomePage() {
   return (
     <Suspense
       fallback={
-        <main className="flex min-h-screen items-center justify-center bg-bccns-paper text-bccns-ink">
-          <p className="font-serif text-xl">
-            Preparing Black Cultural Centre for Nova Scotia Digital Archive…
-          </p>
-        </main>
+        <ViewTransition exit="slide-down" default="none">
+          <main className="flex min-h-screen items-center justify-center bg-bccns-paper text-bccns-ink">
+            <p className="font-serif text-xl">
+              Preparing Black Cultural Centre for Nova Scotia Digital Archive…
+            </p>
+          </main>
+        </ViewTransition>
       }
     >
-      <ArchiveLoader />
+      <ViewTransition enter="slide-up" default="none">
+        <ArchiveLoader />
+      </ViewTransition>
     </Suspense>
   );
 }

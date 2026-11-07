@@ -2,6 +2,8 @@
 
 import Link from "next/link";
 import React, { useEffect, useRef, useState } from "react";
+import { flushSync } from "react-dom";
+import { BsStars } from "react-icons/bs";
 import * as THREE from "three";
 import { Reflector } from "three/examples/jsm/objects/Reflector.js";
 import { archiveEffects, archiveGeometry } from "@/src/lib/archive";
@@ -9,6 +11,7 @@ import { ArchiveAsk, type ArchiveGlance } from "@/src/components/archive/archive
 import type {
   AppMode,
   ArchiveCollection,
+  ArchiveGateView,
   AskView,
   ArchivePayload,
   ArchiveStation,
@@ -30,6 +33,38 @@ import type {
  * WHY: Integrates the 3D rotunda and colonnade walk with the Next.js / Supabase Postgres Dublin Core catalog while honouring the Centre's voice, palette, and build rules.
  * WHERE: Rendered by app/page.tsx and app/museum/page.tsx.
  */
+
+type CoverTransitionType = "nav-forward" | "nav-back" | "gate-switch";
+
+/**
+ * SOURCE OF TRUTH KEYWORDS: startViewTransition, bccns-gate, nav-forward, nav-back, gate-switch
+ * WHAT: Runs a landing-cover update inside the browser view-transition callback.
+ * WHY: addTransitionType is not a stable React export. document.startViewTransition is the public contract, and browsers without it apply the update immediately.
+ * WHERE: showGateView in BccnsArchiveExperience.
+ */
+function runCoverTransition(update: () => void, type: CoverTransitionType) {
+  const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const start = (
+    document as Document & {
+      startViewTransition?: (callback: () => void) => { finished: Promise<void> };
+    }
+  ).startViewTransition;
+  if (reduced || typeof start !== "function") {
+    update();
+    return;
+  }
+  const root = document.documentElement;
+  root.dataset.coverTransition = type;
+  const clearType = () => {
+    delete root.dataset.coverTransition;
+  };
+  try {
+    start(update).finished.then(clearType, clearType);
+  } catch {
+    clearType();
+    update();
+  }
+}
 
 interface PreloaderState {
   active: boolean;
@@ -146,7 +181,7 @@ function coastStationX(
  *       plus all shader controller resources tracked in the engine state. Shared hall textures
  *       (noise, platform, floor, rotunda preview, collection previews) are preserved because they
  *       are reused across scene transitions.
- * WHY: st.scene.remove(root) only detaches objects from the scene graph — it does NOT free WebGL
+ * WHY: st.scene.remove(root) only detaches objects from the scene graph. It does NOT free WebGL
  *      GPU memory. Without explicit disposal, every rotunda↔gallery transition leaks textures,
  *      materials, and geometries, eventually crashing the tab on low-end devices.
  * WHERE: Called in mountRotundaScene, transitionToCollectionRoom, and the component unmount cleanup.
@@ -285,7 +320,7 @@ function disposeEngineResources(st: {
   }
   st.roomFaderController = null;
 
-  // Floor reflectors (WebGLRenderTarget — must be disposed to avoid GPU memory leaks)
+  // Floor reflectors (WebGLRenderTarget: must be disposed to avoid GPU memory leaks)
   if (!st.floorReflectors) st.floorReflectors = [];
   st.floorReflectors.forEach((r) => {
     const target = r.getRenderTarget();
@@ -299,7 +334,7 @@ function disposeEngineResources(st: {
   });
   st.floorReflectors = [];
 
-  // Light controllers (PointLights — no GPU buffers to free, just clear refs)
+  // Light controllers (PointLights: no GPU buffers to free, just clear refs)
   st.lightControllers = [];
 
   // Clear mesh reference arrays (meshes already disposed via scene traversal or above)
@@ -332,7 +367,7 @@ export function BccnsArchiveExperience({
   const { institution, collections } = payload;
 
   // --- React UI State ---
-  const [arrivalHidden, setArrivalHidden] = useState<boolean>(false);
+  const [gateView, setGateView] = useState<ArchiveGateView>("arrival");
   const [appMode, setAppMode] = useState<AppMode>("hall");
   const [activePortalId, setActivePortalId] = useState<number>(0);
   const [currentCollectionKey, setCurrentCollectionKey] =
@@ -370,6 +405,9 @@ export function BccnsArchiveExperience({
   const mountRef = useRef<HTMLDivElement | null>(null);
   const scrubberTrackRef = useRef<HTMLDivElement | null>(null);
   const cursorRef = useRef<HTMLDivElement | null>(null);
+  const arrivalViewRef = useRef<HTMLElement | null>(null);
+  const askViewRef = useRef<HTMLElement | null>(null);
+  const gateOpenRef = useRef(true);
   const settledKeyRef = useRef<string | null>(null);
   const [settledNote, setSettledNote] = useState<SettledNote | null>(null);
 
@@ -470,9 +508,23 @@ export function BccnsArchiveExperience({
   });
 
   // Sync React modal state into engine ref
+  const sceneOpen = gateView === "archive";
+
   useEffect(() => {
-    engineRef.current.arrivalHidden = arrivalHidden;
-  }, [arrivalHidden]);
+    engineRef.current.arrivalHidden = sceneOpen;
+  }, [sceneOpen]);
+
+  useEffect(() => {
+    const wasOpen = gateOpenRef.current;
+    gateOpenRef.current = !sceneOpen;
+    if (wasOpen && sceneOpen) {
+      document.getElementById("bccnsWordmarkBtn")?.focus();
+      return;
+    }
+    if (sceneOpen) return;
+    const activeView = gateView === "ask" ? askViewRef.current : arrivalViewRef.current;
+    activeView?.focus();
+  }, [gateView, sceneOpen]);
 
   useEffect(() => {
     engineRef.current.modalBlocking =
@@ -1101,7 +1153,7 @@ export function BccnsArchiveExperience({
 
     if (skipIntroParam) {
       st.arrivalHidden = true;
-      setArrivalHidden(true);
+      setGateView("archive");
     }
 
     const renderer = new THREE.WebGLRenderer({
@@ -1208,8 +1260,14 @@ export function BccnsArchiveExperience({
 
     const onWheel = (e: WheelEvent) => {
       const wheelTarget = e.target as HTMLElement | null;
+      if (!st.arrivalHidden) {
+        if (!wheelTarget?.closest(".bccns-arrival-card")) {
+          e.preventDefault();
+        }
+        return;
+      }
       if (wheelTarget?.closest("header")) return;
-      if (!st.arrivalHidden || st.modalBlocking) return;
+      if (st.modalBlocking) return;
       if (st.appMode === "hall") {
         hallInputAt = performance.now();
         st.hallLatch = null;
@@ -1264,6 +1322,12 @@ export function BccnsArchiveExperience({
     };
 
     const onPointerMove = (e: PointerEvent) => {
+      if (!st.arrivalHidden) {
+        hallTargetYaw = 0;
+        hallTargetPitch = 0;
+        return;
+      }
+
       if (cursorRef.current) {
         cursorRef.current.style.transform = `translate3d(${e.clientX}px, ${e.clientY}px, 0)`;
       }
@@ -1517,7 +1581,17 @@ export function BccnsArchiveExperience({
       }
     };
 
-    window.addEventListener("wheel", onWheel, { passive: true });
+    const onTouchMove = (e: TouchEvent) => {
+      if (!st.arrivalHidden) {
+        const touchTarget = e.target as HTMLElement | null;
+        if (!touchTarget?.closest(".bccns-arrival-card")) {
+          e.preventDefault();
+        }
+      }
+    };
+
+    window.addEventListener("wheel", onWheel, { passive: false });
+    window.addEventListener("touchmove", onTouchMove, { passive: false });
     window.addEventListener("pointerdown", onPointerDown);
     window.addEventListener("pointerup", onPointerUp);
     window.addEventListener("pointermove", onPointerMove);
@@ -1534,6 +1608,10 @@ export function BccnsArchiveExperience({
       const elapsed = clock.getElapsedTime();
 
       if (st.appMode === "hall" && st.viewNode) {
+        if (!st.arrivalHidden) {
+          hallTargetYaw = 0;
+          hallTargetPitch = 0;
+        }
         const diff = st.targetRotY - st.currentRotY;
         const hallIdle = st.arrivalHidden && !isDragging && performance.now() - hallInputAt > 180;
         if (!hallIdle) {
@@ -1793,6 +1871,7 @@ export function BccnsArchiveExperience({
       disposed = true;
       cancelAnimationFrame(rafId);
       window.removeEventListener("wheel", onWheel);
+      window.removeEventListener("touchmove", onTouchMove);
       window.removeEventListener("pointerdown", onPointerDown);
       window.removeEventListener("pointerup", onPointerUp);
       window.removeEventListener("pointermove", onPointerMove);
@@ -1854,7 +1933,7 @@ export function BccnsArchiveExperience({
     const url = new URL(window.location.href);
     url.searchParams.set("collection", activeCollection.key);
     url.searchParams.set("record", selectedRecordModal.station.id);
-    const citationWithUrl = `${selectedRecordModal.station.citation} — Archive link: ${url.toString()}`;
+    const citationWithUrl = `${selectedRecordModal.station.citation}. Archive link: ${url.toString()}`;
     try {
       await navigator.clipboard.writeText(citationWithUrl);
     } catch {
@@ -1864,8 +1943,37 @@ export function BccnsArchiveExperience({
     setTimeout(() => setCopiedCitation(false), 2000);
   };
 
+  /**
+   * SOURCE OF TRUTH KEYWORDS: gateTransitionType, nav-forward, nav-back, ArchiveGateView
+   * WHAT: Names the direction of a landing-view change.
+   * WHY: Entering the rotunda moves forward. Returning from ask to the introduction moves back. Switching into ask is a sideways step.
+   * WHERE: showGateView.
+   */
+  const gateTransitionType = (next: ArchiveGateView): CoverTransitionType => {
+    if (next === "archive") return "nav-forward";
+    if (next === "arrival" && gateView === "ask") return "nav-back";
+    return "gate-switch";
+  };
+
+  const showGateView = (next: ArchiveGateView) => {
+    runCoverTransition(() => {
+      flushSync(() => {
+        setGateView(next);
+      });
+    }, gateTransitionType(next));
+    if (next !== "archive") return;
+    engineRef.current.arrivalHidden = true;
+  };
+
+  const WordmarkTag = sceneOpen ? "h1" : "p";
+
   return (
-    <div className="bccns-archive-root">
+    <div className={`bccns-archive-root${sceneOpen ? "" : " bccns-arrival-locked"}`}>
+      <div
+        className="bccns-experience"
+        inert={sceneOpen ? undefined : true}
+        aria-hidden={sceneOpen ? undefined : true}
+      >
       {/* 3D Rotunda & Gallery Colonnade WebGL Canvas */}
       <div className="bccns-webgl-stage" id="app" ref={mountRef} />
 
@@ -1876,9 +1984,9 @@ export function BccnsArchiveExperience({
         aria-hidden="true"
       />
 
-      {/* Top Chrome — type only, sitting on the scene */}
+      {/* Top Chrome: type only, sitting on the scene */}
       <header className="bccns-top-chrome">
-        <h1 className="bccns-wordmark">
+        <WordmarkTag className="bccns-wordmark">
           <button
             type="button"
             id="bccnsWordmarkBtn"
@@ -1892,7 +2000,7 @@ export function BccnsArchiveExperience({
           >
             BCCNS
           </button>
-        </h1>
+        </WordmarkTag>
 
         <ArchiveAsk view={settledNote?.view ?? null} glance={settledNote} />
 
@@ -2426,7 +2534,7 @@ export function BccnsArchiveExperience({
             The Black Cultural Centre for Nova Scotia in Cherry Brook was
             established in 1983 by the Black Cultural Society of Nova Scotia
             (incorporated 1977). Its mandate is to protect, preserve, and
-            promote the history and culture of African Nova Scotians — Canada’s
+            promote the history and culture of African Nova Scotians, Canada’s
             oldest Black communities.
           </p>
           <p className="bccns-card-body">
@@ -2677,86 +2785,154 @@ export function BccnsArchiveExperience({
           ))}
         </div>
         <div className="bccns-small-caps-label">
-          PREPARING GALLERY — {preloader.percent}%
+          PREPARING GALLERY: {preloader.percent}%
         </div>
       </div>
+      </div>
 
-      {/* Modernized Arrival Overlay — One-Time Drawn Line resolving into the Serif Wordmark */}
-      <div
-        className={`bccns-arrival-screen ${arrivalHidden ? "hidden" : ""}`}
+      {!sceneOpen && (
+      <main
+        className="bccns-arrival-screen"
         id="startScreen"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={gateView === "ask" ? "bccns-ask-title" : "bccns-arrival-title"}
       >
-        <div className="bccns-arrival-card">
-          <div className="bccns-arrival-badge">
-            <span className="bccns-arrival-dot" />
-            <span>
-              CHERRY BROOK, NOVA SCOTIA · ESTABLISHED {institution.established}
-            </span>
-          </div>
-
-          {/* Drawn welcome line appears only on arrival, once, and resolves into the serif wordmark */}
-          <svg
-            className="bccns-drawn-welcome-svg"
-            viewBox="0 0 360 56"
-            aria-hidden="true"
+        <div className="bccns-view-stage">
+          {gateView === "arrival" ? (
+          <section
+            ref={arrivalViewRef}
+            className="bccns-view bccns-arrival-card bccns-ledger"
+            data-view="arrival"
+            data-active="true"
+            aria-labelledby="bccns-arrival-title"
+            tabIndex={-1}
           >
-            <path d="M 18 42 C 88 14, 152 48, 224 24 C 268 10, 308 38, 342 26" />
-          </svg>
-
-          <h1 className="bccns-arrival-heading">
-            Black Cultural Centre
-            <br />
-            for Nova Scotia
-          </h1>
-
-          <p className="bccns-arrival-copy">
-            {institution.mandate} Turn the rotunda to enter six historical
-            chapters and inspect digitized archival records with their exact
-            holding institutions and citations.
-          </p>
-
-          <div className="bccns-arrival-communities">
-            {[
-              "Birchtown",
-              "Preston",
-              "Shelburne",
-              "Halifax",
-              "Annapolis Royal",
-              "Cherry Brook",
-            ].map((place) => (
-              <span key={place} className="bccns-community-chip">
-                {place}
-              </span>
-            ))}
-          </div>
-
-          <div className="bccns-arrival-actions">
-            <button
-              type="button"
-              className="bccns-primary-enter-btn"
-              id="enterArchiveBtn"
-              onClick={() => {
-                engineRef.current.arrivalHidden = true;
-                setArrivalHidden(true);
-              }}
-            >
-              <span>ENTER DIGITAL ARCHIVE</span>
-              <svg
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                aria-hidden="true"
-              >
-                <line x1="5" y1="12" x2="19" y2="12" />
-                <polyline points="12 5 19 12 12 19" />
-              </svg>
-            </button>
-          </div>
+            <div className="bccns-ledger-grid">
+              <div className="bccns-ledger-logo">
+                <span className="bccns-ledger-seal">
+                  <img
+                    src="/brand/bcc-mark.png"
+                    alt=""
+                    width={179}
+                    height={118}
+                  />
+                </span>
+              </div>
+              <p className="bccns-ledger-est">
+                <span>Est. {institution.established}</span>
+                <span>Cherry Brook, NS</span>
+              </p>
+              <div className="bccns-ledger-gap" aria-hidden="true" />
+              <Link href="/catalog" className="bccns-ledger-catalog">
+                Browse catalog
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.75"
+                  aria-hidden="true"
+                >
+                  <line x1="5" y1="12" x2="19" y2="12" />
+                  <polyline points="12 5 19 12 12 19" />
+                </svg>
+              </Link>
+              <h1 id="bccns-arrival-title" className="bccns-ledger-title">
+                <span className="bccns-ledger-title-fit">
+                  <span>The Black</span>
+                  <span>Cultural</span>
+                  <span>Centre</span>
+                  <em>for Nova Scotia</em>
+                </span>
+              </h1>
+              <p className="bccns-ledger-stack">
+                Archive /
+                <br />
+                Culture /
+                <br />
+                Memory
+              </p>
+              <p id="bccns-arrival-summary" className="bccns-ledger-copy">
+                {institution.mandate} Turn the rotunda to enter six historical
+                chapters and inspect digitized archival records with their exact
+                holding institutions and citations.
+              </p>
+              <div className="bccns-ledger-actions">
+                <button
+                  type="button"
+                  className="bccns-primary-enter-btn"
+                  id="enterArchiveBtn"
+                  onClick={() => showGateView("archive")}
+                >
+                  <span>Enter digital archive</span>
+                  <svg
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.75"
+                    aria-hidden="true"
+                  >
+                    <line x1="5" y1="12" x2="19" y2="12" />
+                    <polyline points="12 5 19 12 12 19" />
+                  </svg>
+                </button>
+                <button
+                  type="button"
+                  className="bccns-ask-archive-btn"
+                  id="askArchiveArrivalBtn"
+                  onClick={() => showGateView("ask")}
+                >
+                  Ask the archive
+                  <BsStars className="bccns-ask-mark" aria-hidden="true" />
+                </button>
+              </div>
+            </div>
+          </section>
+          ) : (
+          <section
+            ref={askViewRef}
+            className="bccns-view bccns-arrival-card bccns-title-wall"
+            data-view="ask"
+            data-active="true"
+            aria-labelledby="bccns-ask-title"
+            tabIndex={-1}
+          >
+            <div className="bccns-title-grid is-single">
+              <div className="bccns-title-main">
+                <h1 id="bccns-ask-title" className="bccns-arrival-heading">
+                  Ask the archive
+                </h1>
+                <p className="bccns-arrival-copy">
+                  Ask about a chapter, a place, or a record. The answer stays tied to the holdings.
+                </p>
+                <ArchiveAsk placement="view" view={null} glance={null} />
+                <div className="bccns-arrival-actions">
+                  <button
+                    type="button"
+                    className="bccns-primary-enter-btn"
+                    onClick={() => showGateView("archive")}
+                  >
+                    Enter digital archive
+                  </button>
+                  <button
+                    type="button"
+                    className="bccns-ask-archive-btn"
+                    onClick={() => showGateView("arrival")}
+                  >
+                    Back to the centre
+                  </button>
+                </div>
+              </div>
+            </div>
+          </section>
+          )}
         </div>
-      </div>
+      </main>
+      )}
     </div>
   );
 }
