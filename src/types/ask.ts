@@ -40,11 +40,25 @@ export const askCitationSchema = z.object({
 
 export type AskCitation = z.infer<typeof askCitationSchema>;
 
+/**
+ * SOURCE OF TRUTH KEYWORDS: askClaimSchema, AskClaim, citedRecordIds, GroundedClaim, InquiryEngine
+ * WHAT: Validated factual claim linking narrative text to verified catalog record IDs.
+ * WHY: Eliminates client-side regex parsing by preserving structured claims directly from the inquiry engine.
+ * WHERE: src/types/ask.ts, lib/services/ask.ts, and src/components/archive/archive-answer.tsx.
+ */
+export const askClaimSchema = z.object({
+  text: z.string(),
+  citedRecordIds: z.array(z.string()),
+});
+
+export type AskClaim = z.infer<typeof askClaimSchema>;
+
 export const askResponseSchema = z.object({
   question: z.string(),
   filters: searchQuerySchema,
   count: z.number().int().nonnegative(),
-  summary: z.string(),
+  claims: z.array(askClaimSchema).default([]),
+  summary: z.string().default(""),
   citations: z.array(askCitationSchema),
 });
 
@@ -76,6 +90,42 @@ export const modelClaimsSchema = z.object({
 });
 
 export type ModelClaims = z.infer<typeof modelClaimsSchema>;
+
+/**
+ * SOURCE OF TRUTH KEYWORDS: LanguageModelPort, LanguageModelInput, LanguageModelHandler, InMemoryModelAdapterConfig, languageModelInputSchema
+ * WHAT: Seam interface, input schema, handler signature, and test double configuration for archive language models.
+ * WHY: Decouples prompt execution from live Gemini network calls, allowing deterministic test doubles and pluggable model adapters.
+ * WHERE: lib/services/ask.ts, lib/services/model-adapter.ts, app/api/ask/route.ts, and tests.
+ */
+export const languageModelInputSchema = z.object({
+  prompt: z.string(),
+  maxOutputTokens: z.number().int().positive().optional(),
+});
+
+export type LanguageModelInput = z.infer<typeof languageModelInputSchema>;
+
+export type LanguageModelHandler = (
+  input: LanguageModelInput,
+) => Promise<ModelClaims> | ModelClaims;
+
+export interface LanguageModelPort {
+  generateClaims(
+    input: LanguageModelInput | string,
+    options?: { maxOutputTokens?: number },
+  ): Promise<ModelClaims>;
+}
+
+export type InMemoryModelAdapterConfig = {
+  claims?: ModelClaims | readonly AskModelClaim[];
+  handler?: LanguageModelHandler;
+  error?: Error | string | null;
+};
+
+export type InMemoryModelAdapterInput =
+  | ModelClaims
+  | readonly AskModelClaim[]
+  | LanguageModelHandler
+  | InMemoryModelAdapterConfig;
 
 export const geminiResponseSchema = z.object({
   candidates: z
@@ -184,9 +234,15 @@ export const archiveGlanceSchema = z.object({
 
 export type ArchiveGlance = z.infer<typeof archiveGlanceSchema>;
 
+/**
+ * SOURCE OF TRUTH KEYWORDS: archiveSearchBarPropsSchema, ArchiveSearchBarProps, searchBarConfig, initialQuestion, autoNavigate, showCatalogCta
+ * WHAT: Validated props schema and TypeScript interface for ArchiveSearchBar.
+ * WHY: Enforces type-safe configuration of navigation, CTA links, initial query hydration, and callbacks across Homeview and Catalog.
+ * WHERE: src/types/ask.ts, src/components/archive/archive-search-bar.tsx.
+ */
 export const archiveSearchBarPropsSchema = z.object({
+  initialQuestion: z.string().optional(),
   autoNavigate: z.boolean().optional(),
-  persistStorage: z.boolean().optional(),
   showCatalogCta: z.boolean().optional(),
   placeholder: z.string().optional(),
   claimLimit: z.number().int().positive().optional(),

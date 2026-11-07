@@ -18,6 +18,7 @@ import {
   recordTypeValues,
   searchQuerySchema,
   type AskCitation,
+  type AskClaim,
   type AskModelClaim,
   type AskResponse,
   type AskView,
@@ -25,6 +26,8 @@ import {
   type AskVocabularyCache,
   type CatalogRecord,
   type ExtraIdValue,
+  type LanguageModelInput,
+  type LanguageModelPort,
   type ModelClaims,
   type RecordBrief,
   type RecordsInViewResult,
@@ -34,7 +37,13 @@ import {
 import { z } from "zod";
 
 import { getArchivePayload } from "./archive";
+import {
+  InMemoryModelAdapter,
+  createInMemoryModelAdapter,
+} from "./model-adapter";
 import { recordsByIds, searchRecords } from "./search";
+
+export { InMemoryModelAdapter, createInMemoryModelAdapter };
 
 const EVIDENCE_LIMIT = 16;
 const EVIDENCE_POOL = 40;
@@ -172,6 +181,28 @@ async function generateClaimsJson(
   throw new Error(lastMessage);
 }
 
+/**
+ * SOURCE OF TRUTH KEYWORDS: GeminiModelAdapter, LanguageModelPort, defaultModelAdapter, generateClaimsJson, askArchive
+ * WHAT: Default language model adapter calling Google Gemini through generateClaimsJson.
+ * WHY: Provides production execution of the LanguageModelPort interface for live inquiry processing.
+ * WHERE: askArchive in lib/services/ask.ts and app/api/ask/route.ts.
+ */
+export class GeminiModelAdapter implements LanguageModelPort {
+  async generateClaims(
+    input: LanguageModelInput | string,
+    options?: { maxOutputTokens?: number },
+  ): Promise<ModelClaims> {
+    const prompt = typeof input === "string" ? input : input.prompt;
+    const maxOutputTokens =
+      typeof input === "object" && input.maxOutputTokens !== undefined
+        ? input.maxOutputTokens
+        : options?.maxOutputTokens;
+    return generateClaimsJson(prompt, maxOutputTokens);
+  }
+}
+
+export const defaultModelAdapter: LanguageModelPort = new GeminiModelAdapter();
+
 let vocabularyCache: AskVocabularyCache | null = null;
 
 /**
@@ -268,33 +299,6 @@ function evidenceCitations(records: readonly CatalogRecord[]): AskCitation[] {
   return records.map((record) => ({ id: record.id, title: record.dc_title }));
 }
 
-/**
- * SOURCE OF TRUTH KEYWORDS: citedRecords, recordId, AskCitation, claimLines, CatalogRecord
- * WHAT: Keeps the records named by the summary sentences, in the order they are used.
- * WHY: The model reads a wide set, and the panel should link the records that sentence actually used.
- * WHERE: askArchive, when building the response citations.
- */
-function citedRecords(
-  lines: readonly string[],
-  records: readonly CatalogRecord[],
-): CatalogRecord[] {
-  const byId = new Map(
-    records.map((record) => [record.id.toLowerCase(), record]),
-  );
-  const chosen: CatalogRecord[] = [];
-  const seen = new Set<string>();
-  for (const line of lines) {
-    for (const id of line.match(RECORD_ID_PATTERN) ?? []) {
-      const record = byId.get(id.toLowerCase());
-      if (!record || seen.has(record.id)) {
-        continue;
-      }
-      seen.add(record.id);
-      chosen.push(record);
-    }
-  }
-  return chosen;
-}
 
 /**
  * SOURCE OF TRUTH KEYWORDS: sourceBlock, recordId, Sources, citation, dc_title
@@ -322,16 +326,16 @@ function countLead(count: number, cited: number): string {
 }
 
 /**
- * SOURCE OF TRUTH KEYWORDS: claimLines, AskModelClaim, recordIds, citationGrounding, ExtraIdValue
- * WHAT: Validates and formats drafted model claims so every kept sentence cites at least one retrieved record id and zero unknown ids.
- * WHY: Drops uncited claims and claims referencing fabricated or unretrieved UUIDs so ungrounded model prose never appears in the summary.
- * WHERE: askArchive in lib/services/ask.ts and unit verification tests.
+ * SOURCE OF TRUTH KEYWORDS: groundClaims, AskClaim, citationGrounding, pruneHallucinations, GroundedClaim
+ * WHAT: Validates drafted model claims against retrieved candidate records and extra IDs, pruning fabricated IDs and ungrounded claims.
+ * WHY: Ensures that only factual claims strictly grounded in retrieved catalog records are emitted, with no unverified UUIDs.
+ * WHERE: askArchive in lib/services/ask.ts, claimLines backward compatibility, and automated tests.
  */
-export function claimLines(
+export function groundClaims(
   claims: readonly AskModelClaim[],
   records: readonly CatalogRecord[],
   extraIds: ReadonlyMap<string, ExtraIdValue> = new Map(),
-): string[] {
+): AskClaim[] {
   const idsByLower = new Map(
     records.map((record) => [record.id.toLowerCase(), record.id]),
   );
@@ -339,7 +343,7 @@ export function claimLines(
     idsByLower.set(id.toLowerCase(), id);
   }
 
-  const lines: string[] = [];
+  const grounded: AskClaim[] = [];
   for (const claim of claims) {
     const requested = [
       ...new Set(
@@ -352,20 +356,16 @@ export function claimLines(
       id.toLowerCase(),
     );
 
-    if (
-      requested.some((id) => !idsByLower.has(id)) ||
-      mentioned.some((id) => !idsByLower.has(id))
-    ) {
-      continue;
-    }
-
     const candidateLowerIds =
       requested.length > 0 ? requested : [...new Set(mentioned)];
-    const citedIds = candidateLowerIds
-      .map((id) => idsByLower.get(id))
-      .filter((id): id is string => Boolean(id));
 
-    if (citedIds.length === 0) {
+    // Prune unverified or fabricated IDs, retaining only verified candidate IDs
+    const validCitedRecordIds = candidateLowerIds
+      .filter((id) => idsByLower.has(id))
+      .map((id) => idsByLower.get(id)!);
+
+    // If claim cites zero valid records, prune it
+    if (validCitedRecordIds.length === 0) {
       continue;
     }
 
@@ -378,9 +378,31 @@ export function claimLines(
       continue;
     }
 
-    lines.push(`${text} ${citedIds.map((id) => `[${id}]`).join(" ")}`);
+    grounded.push({
+      text,
+      citedRecordIds: [...new Set(validCitedRecordIds)],
+    });
   }
-  return lines;
+
+  return grounded;
+}
+
+/**
+ * SOURCE OF TRUTH KEYWORDS: claimLines, AskModelClaim, recordIds, citationGrounding, ExtraIdValue
+ * WHAT: Validates and formats drafted model claims so every kept sentence cites at least one retrieved record id and zero unknown ids.
+ * WHY: Backward compatibility helper formatting grounded claims into bracketed record ID lines.
+ * WHERE: askArchive in lib/services/ask.ts and unit verification tests.
+ */
+export function claimLines(
+  claims: readonly AskModelClaim[],
+  records: readonly CatalogRecord[],
+  extraIds: ReadonlyMap<string, ExtraIdValue> = new Map(),
+): string[] {
+  const grounded = groundClaims(claims, records, extraIds);
+  return grounded.map(
+    (claim) =>
+      `${claim.text} ${claim.citedRecordIds.map((id) => `[${id}]`).join(" ")}`,
+  );
 }
 
 const QUESTION_STOP_WORDS = new Set([
@@ -722,6 +744,7 @@ function selectEvidence(
 export async function askArchive(
   question: string,
   view?: AskView,
+  modelAdapter: LanguageModelPort = defaultModelAdapter,
 ): Promise<AskResponse> {
   const names = await askVocabulary();
   const filters = filtersFromQuestion(question, names);
@@ -764,6 +787,7 @@ export async function askArchive(
       question,
       filters,
       count: 0,
+      claims: [{ text: noArchiveSourceMessage, citedRecordIds: [] }],
       summary: noArchiveSourceMessage,
       citations: [],
     });
@@ -817,17 +841,32 @@ export async function askArchive(
     ]),
   ].join("\n");
 
-  let lines: string[] = [];
+  let grounded: AskClaim[] = [];
   try {
-    const drafted = await generateClaimsJson(summaryPrompt, 1400);
-    lines = claimLines(drafted.claims ?? [], records, wallById);
+    const drafted = await modelAdapter.generateClaims({
+      prompt: summaryPrompt,
+      maxOutputTokens: 1400,
+    });
+    grounded = groundClaims(drafted.claims ?? [], records, wallById);
   } catch {
-    lines = [];
+    grounded = [];
   }
 
-  const cited = citedRecords(lines, records);
+  const lines = grounded.map(
+    (claim) =>
+      `${claim.text} ${claim.citedRecordIds.map((id) => `[${id}]`).join(" ")}`,
+  );
+
+  const citedRecordIdSet = new Set(
+    grounded.flatMap((claim) =>
+      claim.citedRecordIds.map((id) => id.toLowerCase()),
+    ),
+  );
+  const cited = records.filter((record) =>
+    citedRecordIdSet.has(record.id.toLowerCase()),
+  );
   const citedWall = viewed.wall.filter((record) =>
-    lines.some((line) => line.toLowerCase().includes(record.id.toLowerCase())),
+    citedRecordIdSet.has(record.id.toLowerCase()),
   );
   const lead = countLead(
     Math.max(search.count, gathered.length),
@@ -837,10 +876,16 @@ export async function askArchive(
     lines.length > 0 ? lines.join("\n\n") : noDirectAnswerMessage;
   const summary = `${lead}\n\n${body}\n\nSources:\n${sourceBlock(records)}`;
 
+  const claims: AskClaim[] =
+    grounded.length > 0
+      ? grounded
+      : [{ text: noDirectAnswerMessage, citedRecordIds: [] }];
+
   return askResponseSchema.parse({
     question,
     filters: search.filters,
     count: Math.max(search.count, gathered.length),
+    claims,
     summary,
     citations: [
       ...citedWall.map((record) => ({

@@ -15,8 +15,6 @@ import {
   type AskView,
 } from "@/src/types";
 
-const BRACKETED_RECORD_ID =
-  /\[([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\]/gi;
 
 /**
  * SOURCE OF TRUTH KEYWORDS: requestArchiveAnswer, /api/ask, AskView, AskResponse
@@ -64,53 +62,12 @@ function citationHref(citation: Pick<AskCitation, "id" | "collectionKey">): stri
 }
 
 /**
- * SOURCE OF TRUTH KEYWORDS: spokenClaims, Sources, in-text citation, summary
- * WHAT: Keeps the spoken paragraphs, including the record ids each sentence cites.
- * WHY: Both ask surfaces read the same grounded summary.
- * WHERE: ArchiveAnswer.
- */
-function spokenClaims(summary: string): string[] {
-  const withoutSources = summary.split(/\n\nSources:\n/)[0] ?? summary;
-  const withoutLead = withoutSources.replace(/^The search matched[\s\S]*?\n\n/, "");
-  return withoutLead
-    .split(/\n\n/)
-    .map((paragraph) => paragraph.replace(/\s+/g, " ").trim())
-    .filter((paragraph) => paragraph.length > 0);
-}
-
-/**
- * SOURCE OF TRUTH KEYWORDS: paragraphCitations, BRACKETED_RECORD_ID, AskCitation, title
- * WHAT: Splits one claim into its sentence and the records that sentence cites.
- * WHY: The sentence stays readable, and each record id becomes a numbered mark.
- * WHERE: ArchiveAnswer.
- */
-function paragraphCitations(paragraph: string, known: ReadonlyMap<string, AskCitation>): { text: string; cites: AskCitation[] } {
-  const parts = paragraph.split(BRACKETED_RECORD_ID);
-  const text = parts
-    .filter((_, index) => index % 2 === 0)
-    .join(" ")
-    .replace(/\s+/g, " ")
-    .trim();
-  const cites: AskCitation[] = [];
-  const seen = new Set<string>();
-  parts.forEach((part, index) => {
-    if (index % 2 === 0) return;
-    const key = part.toLowerCase();
-    const citation = known.get(key);
-    if (!citation || seen.has(key)) return;
-    seen.add(key);
-    cites.push(citation);
-  });
-  return { text, cites };
-}
-
-/**
- * SOURCE OF TRUTH KEYWORDS: sourceIndex, citation number, AskCitation, accordion
+ * SOURCE OF TRUTH KEYWORDS: sourceIndex, citation number, AskCitation, accordion, GroundedClaim
  * WHAT: Numbers each cited record once, in the order the shown claims first use it.
- * WHY: An inline mark and the source list must share the same number.
+ * WHY: An inline mark and the source list must share the same number without regex parsing.
  * WHERE: ArchiveAnswer.
  */
-function sourceIndex(claims: readonly { cites: AskCitation[] }[], result: AskResponse): AskCitation[] {
+function sourceIndex(claims: readonly { cites: readonly AskCitation[] }[], result: AskResponse): AskCitation[] {
   const seen = new Map<string, AskCitation>();
   for (const claim of claims) {
     for (const cite of claim.cites) {
@@ -216,16 +173,20 @@ function InlineMarks({ cites, numbers }: { cites: readonly AskCitation[]; number
 }
 
 /**
- * SOURCE OF TRUTH KEYWORDS: ArchiveAnswer, inline citation, sources accordion, tooltip
+ * SOURCE OF TRUTH KEYWORDS: ArchiveAnswer, inline citation, sources accordion, tooltip, GroundedClaim
  * WHAT: Renders a grounded answer with numbered marks, a title tooltip, and a collapsed numbered source list.
- * WHY: The catalog and the room share one citation treatment. A surface passes claimLimit when it needs a shorter note.
+ * WHY: The catalog and the room share one citation treatment. Renders directly from structured typed claims without regular expressions.
  * WHERE: AskArchive and ArchiveAsk.
  */
 export function ArchiveAnswer({ result, claimLimit }: { result: AskResponse; claimLimit?: number }): ReactNode {
   const known = new Map(result.citations.map((citation) => [citation.id.toLowerCase(), citation]));
-  const claims = spokenClaims(result.summary)
-    .map((paragraph) => paragraphCitations(paragraph, known))
-    .slice(0, claimLimit);
+  const displayClaims = result.claims.slice(0, claimLimit);
+  const claims = displayClaims.map((claim) => ({
+    text: claim.text,
+    cites: claim.citedRecordIds
+      .map((id) => known.get(id.toLowerCase()))
+      .filter((cite): cite is AskCitation => Boolean(cite)),
+  }));
   const sources = sourceIndex(claims, result);
   const numbers = new Map(sources.map((cite, index) => [cite.id.toLowerCase(), index + 1]));
   return (

@@ -92,11 +92,53 @@
   }
 }
 
+.submitButton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 36px;
+  min-height: 36px;
+  margin: 0;
+  padding: 6px;
+  border: 0;
+  background: transparent;
+  color: hsl(var(--primary));
+  cursor: pointer;
+  border-radius: 999px;
+  flex: none;
+  transition: opacity 160ms ease, transform 160ms ease;
+}
+
+.submitButton:focus {
+  outline: none;
+}
+
+.submitButton:focus-visible {
+  outline: 2px solid hsl(var(--primary));
+  outline-offset: 2px;
+}
+
+.submitButton:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .submitButton:hover:not(:disabled) {
+    opacity: 0.8;
+  }
+
+  .submitButton:hover:not(:disabled) .icon {
+    transform: scale(1.08);
+  }
+}
+
 .icon {
   width: 18px;
   height: 18px;
   flex: none;
   color: hsl(var(--primary));
+  transition: transform 160ms ease;
 }
 
 .input {
@@ -192,7 +234,9 @@
   .ask,
   .wave,
   .dismiss,
-  .ctaButton {
+  .ctaButton,
+  .submitButton,
+  .icon {
     transition: none;
   }
 
