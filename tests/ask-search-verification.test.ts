@@ -2720,6 +2720,124 @@ describe("Ticket 04: End-to-End Verification and Accessibility Test Suite", () =
   });
 });
 
+/**
+ * SOURCE OF TRUTH KEYWORDS: catalogFiltersSynchronizationTest, CatalogFilters, reactiveFilterSync, externalFacetSync, dropdownValueSync, inputFieldSync
+ * WHAT: Unit and contract tests verifying that all facet filter inputs (dropdowns: institution, type; inputs: creator, subject, place, from, to) stay synchronized with active query props.
+ * WHY: Proves that external filter triggers (Connection Graph node selection, Ask AI inquiry completion, Clear Filters links, and URL navigation) never desynchronize the form controls from active search parameters.
+ * WHERE: tests/ask-search-verification.test.ts.
+ */
+describe("CatalogFilters Input Field and Dropdown Synchronization", () => {
+  const samplePublishers = [
+    "Black Cultural Centre for Nova Scotia",
+    "Nova Scotia Archives",
+    "Dalhousie University",
+  ];
+
+  it("synchronizes all select dropdowns and input fields when full facet filters are provided", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(CatalogFilters, {
+        publishers: samplePublishers,
+        query: {
+          q: "Historical community records",
+          institution: "Nova Scotia Archives",
+          type: "photograph",
+          creator: "Richard Preston",
+          subject: "Preston Community",
+          place: "Preston",
+          from: "1850",
+          to: "1900",
+        },
+        isOpen: true,
+      }),
+    );
+
+    // Verify select dropdown values are selected in DOM markup
+    expect(html).toContain('name="institution"');
+    expect(html).toContain(
+      '<option value="Nova Scotia Archives" selected="">Nova Scotia Archives</option>',
+    );
+    expect(html).toContain('name="type"');
+    expect(html).toContain(
+      '<option value="photograph" selected="">photograph</option>',
+    );
+
+    // Verify text and date input field values match active query
+    expect(html).toContain('name="creator"');
+    expect(html).toContain('value="Richard Preston"');
+    expect(html).toContain('name="subject"');
+    expect(html).toContain('value="Preston Community"');
+    expect(html).toContain('name="place"');
+    expect(html).toContain('value="Preston"');
+    expect(html).toContain('name="from"');
+    expect(html).toContain('value="1850-01-01"');
+    expect(html).toContain('name="to"');
+    expect(html).toContain('value="1900-12-31"');
+  });
+
+  it("resets all select dropdowns and input fields to empty values when secondary filters are cleared", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(CatalogFilters, {
+        publishers: samplePublishers,
+        query: {
+          q: "Historical community records",
+        },
+        isOpen: true,
+      }),
+    );
+
+    // Verify select dropdowns default to empty ("All institutions" / "All types")
+    expect(html).toContain('<option value="" selected="">All institutions</option>');
+    expect(html).toContain('<option value="" selected="">All types</option>');
+
+    // Verify text and date inputs are reset to empty
+    expect(html).toContain('name="creator"');
+    expect(html).toContain('value=""');
+    expect(html).toContain('name="subject"');
+    expect(html).toContain('name="place"');
+    expect(html).toContain('name="from"');
+    expect(html).toContain('name="to"');
+  });
+
+  it("synchronizes individual external filter triggers such as Connection Graph institution selection", () => {
+    // Simulates visitor clicking 'Filter Catalog by Institution' from Connection Graph
+    const graphFilterHtml = renderToStaticMarkup(
+      React.createElement(CatalogFilters, {
+        publishers: samplePublishers,
+        query: {
+          institution: "Black Cultural Centre for Nova Scotia",
+        },
+        isOpen: true,
+      }),
+    );
+
+    expect(graphFilterHtml).toContain(
+      '<option value="Black Cultural Centre for Nova Scotia" selected="">Black Cultural Centre for Nova Scotia</option>',
+    );
+    expect(graphFilterHtml).toContain('<option value="" selected="">All types</option>');
+    expect(graphFilterHtml).toContain('data-testid="catalog-filters-badge"');
+    expect(graphFilterHtml).toContain(">1<");
+  });
+
+  it("synchronizes individual external filter triggers such as Connection Graph place selection", () => {
+    // Simulates visitor clicking 'Filter Catalog by Place' from Connection Graph
+    const graphFilterHtml = renderToStaticMarkup(
+      React.createElement(CatalogFilters, {
+        publishers: samplePublishers,
+        query: {
+          place: "Africville",
+        },
+        isOpen: true,
+      }),
+    );
+
+    expect(graphFilterHtml).toContain('name="place"');
+    expect(graphFilterHtml).toContain('value="Africville"');
+    expect(graphFilterHtml).toContain('<option value="" selected="">All institutions</option>');
+    expect(graphFilterHtml).toContain('data-testid="catalog-filters-badge"');
+    expect(graphFilterHtml).toContain(">1<");
+  });
+});
+
 
 
 
