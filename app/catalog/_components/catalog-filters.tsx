@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ChevronDown, ChevronUp, SlidersHorizontal } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -80,6 +80,55 @@ export function CatalogFilters(rawProps: CatalogFiltersProps) {
   );
   const isOpen =
     controlledIsOpen !== undefined ? controlledIsOpen : uncontrolledIsOpen;
+
+  /**
+   * SOURCE OF TRUTH KEYWORDS: formValues, syncFilterInputs, controlledFacetFields, catalogFilterSync, handleFieldChange
+   * WHAT: Internal state for facet filter fields synchronized reactively with incoming URL query props.
+   * WHY: Fixes the desynchronization bug where external filter triggers (e.g. Connection Graph, Ask AI, Clear filters) update the URL and badge count but leave dropdowns and text inputs displaying stale values.
+   * WHERE: app/catalog/_components/catalog-filters.tsx.
+   */
+  const [formValues, setFormValues] = useState({
+    institution: query.institution ?? "",
+    type: query.type ?? "",
+    creator: query.creator ?? "",
+    subject: query.subject ?? "",
+    place: query.place ?? "",
+    from: query.from ?? "",
+    to: query.to ?? "",
+  });
+
+  useEffect(() => {
+    setFormValues({
+      institution: query.institution ?? "",
+      type: query.type ?? "",
+      creator: query.creator ?? "",
+      subject: query.subject ?? "",
+      place: query.place ?? "",
+      from: query.from ?? "",
+      to: query.to ?? "",
+    });
+  }, [
+    query.institution,
+    query.type,
+    query.creator,
+    query.subject,
+    query.place,
+    query.from,
+    query.to,
+  ]);
+
+  /**
+   * SOURCE OF TRUTH KEYWORDS: handleFieldChange, updateFilterField, controlledFormState, facetInputUpdate, CatalogFilters
+   * WHAT: Updates a single field in the internal facet filter form state.
+   * WHY: Keeps controlled inputs responsive to visitor edits while maintaining synchronization with external triggers.
+   * WHERE: app/catalog/_components/catalog-filters.tsx input onChange handlers.
+   */
+  const handleFieldChange = (
+    field: keyof typeof formValues,
+    value: string,
+  ) => {
+    setFormValues((prev) => ({ ...prev, [field]: value }));
+  };
 
   /**
    * SOURCE OF TRUTH KEYWORDS: toggleOpen, controlledFilterExpansion, panelVisibility, disclosureToggle, CatalogFilters
@@ -175,7 +224,10 @@ export function CatalogFilters(rawProps: CatalogFiltersProps) {
               Institution
               <select
                 name="institution"
-                defaultValue={query.institution ?? ""}
+                value={formValues.institution}
+                onChange={(event) =>
+                  handleFieldChange("institution", event.target.value)
+                }
                 className={fieldClassName}
               >
                 <option value="">All institutions</option>
@@ -190,7 +242,10 @@ export function CatalogFilters(rawProps: CatalogFiltersProps) {
               Type
               <select
                 name="type"
-                defaultValue={query.type ?? ""}
+                value={formValues.type}
+                onChange={(event) =>
+                  handleFieldChange("type", event.target.value)
+                }
                 className={fieldClassName}
               >
                 <option value="">All types</option>
@@ -205,7 +260,10 @@ export function CatalogFilters(rawProps: CatalogFiltersProps) {
               Creator
               <Input
                 name="creator"
-                defaultValue={query.creator ?? ""}
+                value={formValues.creator}
+                onChange={(event) =>
+                  handleFieldChange("creator", event.target.value)
+                }
                 placeholder="Creator or contributor"
                 className={fieldClassName}
               />
@@ -214,7 +272,10 @@ export function CatalogFilters(rawProps: CatalogFiltersProps) {
               Subject
               <Input
                 name="subject"
-                defaultValue={query.subject ?? ""}
+                value={formValues.subject}
+                onChange={(event) =>
+                  handleFieldChange("subject", event.target.value)
+                }
                 placeholder="Subject"
                 className={fieldClassName}
               />
@@ -223,7 +284,10 @@ export function CatalogFilters(rawProps: CatalogFiltersProps) {
               Place
               <Input
                 name="place"
-                defaultValue={query.place ?? ""}
+                value={formValues.place}
+                onChange={(event) =>
+                  handleFieldChange("place", event.target.value)
+                }
                 placeholder="Place"
                 className={fieldClassName}
               />
@@ -235,7 +299,10 @@ export function CatalogFilters(rawProps: CatalogFiltersProps) {
                 type="text"
                 inputMode="numeric"
                 placeholder="YYYY or YYYY-MM-DD"
-                defaultValue={query.from ?? ""}
+                value={formValues.from}
+                onChange={(event) =>
+                  handleFieldChange("from", event.target.value)
+                }
                 className={fieldClassName}
               />
             </label>
@@ -246,7 +313,10 @@ export function CatalogFilters(rawProps: CatalogFiltersProps) {
                 type="text"
                 inputMode="numeric"
                 placeholder="YYYY or YYYY-MM-DD"
-                defaultValue={query.to ?? ""}
+                value={formValues.to}
+                onChange={(event) =>
+                  handleFieldChange("to", event.target.value)
+                }
                 className={fieldClassName}
               />
             </label>
